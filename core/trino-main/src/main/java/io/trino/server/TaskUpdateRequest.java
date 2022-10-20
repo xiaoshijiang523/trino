@@ -22,6 +22,7 @@ import io.trino.execution.buffer.OutputBuffers;
 import io.trino.spi.predicate.Domain;
 import io.trino.sql.planner.PlanFragment;
 import io.trino.sql.planner.plan.DynamicFilterId;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,7 @@ public class TaskUpdateRequest
     private final List<SplitAssignment> splitAssignments;
     private final OutputBuffers outputIds;
     private final Map<DynamicFilterId, Domain> dynamicFilterDomains;
+    private final Optional<PlanNodeId> consumerId;
 
     @JsonCreator
     public TaskUpdateRequest(
@@ -47,7 +49,8 @@ public class TaskUpdateRequest
             @JsonProperty("fragment") Optional<PlanFragment> fragment,
             @JsonProperty("splitAssignments") List<SplitAssignment> splitAssignments,
             @JsonProperty("outputIds") OutputBuffers outputIds,
-            @JsonProperty("dynamicFilterDomains") Map<DynamicFilterId, Domain> dynamicFilterDomains)
+            @JsonProperty("dynamicFilterDomains") Map<DynamicFilterId, Domain> dynamicFilterDomains,
+            @JsonProperty("consumerId")Optional<PlanNodeId> consumerPlanNodeId)
     {
         requireNonNull(session, "session is null");
         requireNonNull(extraCredentials, "extraCredentials is null");
@@ -62,6 +65,7 @@ public class TaskUpdateRequest
         this.splitAssignments = ImmutableList.copyOf(splitAssignments);
         this.outputIds = outputIds;
         this.dynamicFilterDomains = dynamicFilterDomains;
+        this.consumerId = consumerPlanNodeId;
     }
 
     @JsonProperty
@@ -98,6 +102,12 @@ public class TaskUpdateRequest
     public Map<DynamicFilterId, Domain> getDynamicFilterDomains()
     {
         return dynamicFilterDomains;
+    }
+
+    @JsonProperty
+    public Optional<PlanNodeId> getConsumerId()
+    {
+        return consumerId;
     }
 
     @Override

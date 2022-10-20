@@ -28,6 +28,7 @@ import io.trino.sql.DynamicFilters;
 import io.trino.sql.PlannerContext;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.DeleteNode;
 import io.trino.sql.planner.plan.DistinctLimitNode;
 import io.trino.sql.planner.plan.DynamicFilterSourceNode;
@@ -461,6 +462,12 @@ public class SplitSourceFactory
         protected Map<PlanNodeId, SplitSource> visitPlan(PlanNode node, Void context)
         {
             throw new UnsupportedOperationException("not yet implemented: " + node.getClass().getName());
+        }
+
+        @Override
+        public Map<PlanNodeId, SplitSource> visitCTEScan(CTEScanNode node, Void context)
+        {
+            return processSources(node.getSources(), context);
         }
     }
 }

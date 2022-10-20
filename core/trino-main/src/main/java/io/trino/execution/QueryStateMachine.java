@@ -1045,6 +1045,7 @@ public class QueryStateMachine
         // only execute cleanup once
         if (queryCleanedUp.compareAndSet(false, true)) {
             metadata.cleanupQuery(session);
+            SqlTaskManager.cleanupContext(queryId.getId());
         }
     }
 

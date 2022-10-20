@@ -19,6 +19,7 @@ import io.trino.connector.CatalogHandle;
 import io.trino.execution.RemoteTask;
 import io.trino.metadata.InternalNode;
 import io.trino.metadata.Split;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,7 @@ public class TestingNodeSelectorFactory
     }
 
     @Override
-    public NodeSelector createNodeSelector(Session session, Optional<CatalogHandle> catalogName)
+    public NodeSelector createNodeSelector(Session session, Optional<CatalogHandle> catalogName, boolean keepConsumerOnFeederNodes, Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes)
     {
         return new TestingNodeSelector(currentNode, createNodesSupplierForCatalog(catalogName, nodesSupplier));
     }
@@ -139,7 +140,7 @@ public class TestingNodeSelectorFactory
         }
 
         @Override
-        public SplitPlacementResult computeAssignments(Set<Split> splits, List<RemoteTask> existingTasks)
+        public SplitPlacementResult computeAssignments(Set<Split> splits, List<RemoteTask> existingTasks, Optional<StageExecution> stage)
         {
             throw new UnsupportedOperationException();
         }

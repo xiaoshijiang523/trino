@@ -38,6 +38,7 @@ import io.trino.sql.tree.Cast;
 import io.trino.sql.tree.ComparisonExpression;
 import io.trino.sql.tree.Expression;
 import io.trino.sql.tree.FunctionCall;
+import io.trino.sql.tree.LogicalExpression;
 import io.trino.sql.tree.QualifiedName;
 import io.trino.sql.tree.StringLiteral;
 import io.trino.sql.tree.SymbolReference;
@@ -45,6 +46,7 @@ import io.trino.sql.tree.SymbolReference;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -52,10 +54,16 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableListMultimap.toImmutableListMultimap;
 import static io.trino.spi.type.StandardTypes.BOOLEAN;
 import static io.trino.spi.type.StandardTypes.VARCHAR;
+import static io.trino.sql.ExpressionUtils.combineConjuncts;
+import static io.trino.sql.ExpressionUtils.combineDisjuncts;
+import static io.trino.sql.ExpressionUtils.extractAllPredicates;
 import static io.trino.sql.ExpressionUtils.extractConjuncts;
+import static io.trino.sql.ExpressionUtils.extractPredicates;
 import static io.trino.sql.tree.BooleanLiteral.FALSE_LITERAL;
 import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static io.trino.sql.tree.ComparisonExpression.Operator.EQUAL;
+import static io.trino.sql.tree.LogicalExpression.Operator.AND;
+import static io.trino.sql.tree.LogicalExpression.Operator.OR;
 import static java.util.Objects.requireNonNull;
 
 public final class DynamicFilters
@@ -170,6 +178,52 @@ public final class DynamicFilters
                         dynamicFilterFunctionCall.getArguments().get(1),
                         new StringLiteral(newId.toString()), // dynamic filter id is the 3rd argument
                         dynamicFilterFunctionCall.getArguments().get(3)));
+    }
+
+    public static Expression extractDynamicFilterExpression(Expression expression, Metadata metadata)
+    {
+        if (expression instanceof LogicalExpression) {
+            switch (((LogicalExpression) expression).getOperator()) {
+                case AND:
+                    return combineConjuncts(metadata, (extractPredicates(AND, expression)
+                            .stream()
+                            .map(exp -> extractDynamicFilterExpression(exp, metadata))
+                            .collect(Collectors.toList())));
+                case OR:
+                    return combineDisjuncts(metadata, (extractPredicates(OR, expression)
+                            .stream()
+                            .map(exp -> extractDynamicFilterExpression(exp, metadata))
+                            .collect(Collectors.toList())));
+                default:
+                    return TRUE_LITERAL;
+            }
+        }
+        else if (expression instanceof FunctionCall) {
+            if (getDescriptor(expression).isPresent()) {
+                return expression;
+            }
+        }
+        return TRUE_LITERAL;
+    }
+
+    public static Optional<Expression> extractStaticFilters(Optional<Expression> expression, Metadata metadata)
+    {
+        if (expression.isPresent()) {
+            List<Expression> filters = extractConjuncts(expression.get());
+            Expression staticFilters = TRUE_LITERAL;
+            for (Expression filter : filters) {
+                List<Expression> predicates = extractAllPredicates(filter);
+                for (Expression predicate : predicates) {
+                    if (!getDescriptor(predicate).isPresent()) {
+                        staticFilters = combineConjuncts(metadata, staticFilters, filter);
+                    }
+                }
+            }
+            return staticFilters.equals(TRUE_LITERAL) ? Optional.empty() : Optional.of(staticFilters);
+        }
+        else {
+            return Optional.empty();
+        }
     }
 
     public static boolean isDynamicFilter(Expression expression)

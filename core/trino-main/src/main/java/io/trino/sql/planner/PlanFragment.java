@@ -53,6 +53,8 @@ public class PlanFragment
     private final StatsAndCosts statsAndCosts;
     private final List<CatalogProperties> activeCatalogs;
     private final Optional<String> jsonRepresentation;
+    private final Optional<PlanFragmentId> feederCTEId;
+    private final Optional<PlanNodeId> feederCTEParentId;
 
     // Only for creating instances without the JSON representation embedded
     private PlanFragment(
@@ -67,7 +69,9 @@ public class PlanFragment
             List<RemoteSourceNode> remoteSourceNodes,
             PartitioningScheme partitioningScheme,
             StatsAndCosts statsAndCosts,
-            List<CatalogProperties> activeCatalogs)
+            List<CatalogProperties> activeCatalogs,
+            Optional<PlanFragmentId> feederCTEId,
+            Optional<PlanNodeId> feederCTEParentId)
     {
         this.id = requireNonNull(id, "id is null");
         this.root = requireNonNull(root, "root is null");
@@ -82,6 +86,8 @@ public class PlanFragment
         this.statsAndCosts = requireNonNull(statsAndCosts, "statsAndCosts is null");
         this.activeCatalogs = requireNonNull(activeCatalogs, "activeCatalogs is null");
         this.jsonRepresentation = Optional.empty();
+        this.feederCTEId = feederCTEId;
+        this.feederCTEParentId = requireNonNull(feederCTEParentId, "feederCTEParentId is null");
     }
 
     @JsonCreator
@@ -94,7 +100,9 @@ public class PlanFragment
             @JsonProperty("partitioningScheme") PartitioningScheme partitioningScheme,
             @JsonProperty("statsAndCosts") StatsAndCosts statsAndCosts,
             @JsonProperty("activeCatalogs") List<CatalogProperties> activeCatalogs,
-            @JsonProperty("jsonRepresentation") Optional<String> jsonRepresentation)
+            @JsonProperty("jsonRepresentation") Optional<String> jsonRepresentation,
+            @JsonProperty("feederCTE") Optional<PlanFragmentId> feederCTEId,
+            @JsonProperty("feederCTEParentId") Optional<PlanNodeId> feederCTEParentId)
     {
         this.id = requireNonNull(id, "id is null");
         this.root = requireNonNull(root, "root is null");
@@ -105,7 +113,8 @@ public class PlanFragment
         this.statsAndCosts = requireNonNull(statsAndCosts, "statsAndCosts is null");
         this.activeCatalogs = requireNonNull(activeCatalogs, "activeCatalogs is null");
         this.jsonRepresentation = requireNonNull(jsonRepresentation, "jsonRepresentation is null");
-
+        this.feederCTEId = feederCTEId;
+        this.feederCTEParentId = requireNonNull(feederCTEParentId, "feederCTEParentId is null");
         checkArgument(partitionedSourcesSet.size() == partitionedSources.size(), "partitionedSources contains duplicates");
         checkArgument(ImmutableSet.copyOf(root.getOutputSymbols()).containsAll(partitioningScheme.getOutputLayout()),
                 "Root node outputs (%s) does not include all fragment outputs (%s)", root.getOutputSymbols(), partitioningScheme.getOutputLayout());
@@ -184,6 +193,18 @@ public class PlanFragment
         return jsonRepresentation;
     }
 
+    @JsonProperty
+    public Optional<PlanFragmentId> getFeederCTEId()
+    {
+        return feederCTEId;
+    }
+
+    @JsonProperty
+    public Optional<PlanNodeId> getFeederCTEParentId()
+    {
+        return feederCTEParentId;
+    }
+
     public PlanFragment withoutEmbeddedJsonRepresentation()
     {
         if (jsonRepresentation.isEmpty()) {
@@ -201,7 +222,9 @@ public class PlanFragment
                 this.remoteSourceNodes,
                 this.partitioningScheme,
                 this.statsAndCosts,
-                this.activeCatalogs);
+                this.activeCatalogs,
+                this.feederCTEId,
+                this.feederCTEParentId);
     }
 
     public List<Type> getTypes()
@@ -255,7 +278,7 @@ public class PlanFragment
 
     public PlanFragment withBucketToPartition(Optional<int[]> bucketToPartition)
     {
-        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitioningScheme.withBucketToPartition(bucketToPartition), statsAndCosts, activeCatalogs, jsonRepresentation);
+        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitioningScheme.withBucketToPartition(bucketToPartition), statsAndCosts, activeCatalogs, jsonRepresentation, feederCTEId, feederCTEParentId);
     }
 
     @Override

@@ -203,7 +203,7 @@ public class NodePartitioningManager
     {
         SystemPartitioning partitioning = ((SystemPartitioningHandle) partitioningHandle.getConnectorHandle()).getPartitioning();
 
-        NodeSelector nodeSelector = nodeScheduler.createNodeSelector(session, Optional.empty());
+        NodeSelector nodeSelector = nodeScheduler.createNodeSelector(session, Optional.empty(), false, null);
 
         List<InternalNode> nodes = switch (partitioning) {
             case COORDINATOR_ONLY -> ImmutableList.of(nodeSelector.selectCurrentNode());
@@ -255,7 +255,7 @@ public class NodePartitioningManager
 
     private List<InternalNode> getAllNodes(Session session, CatalogHandle catalogHandle)
     {
-        return nodeScheduler.createNodeSelector(session, Optional.of(catalogHandle)).allNodes();
+        return nodeScheduler.createNodeSelector(session, Optional.of(catalogHandle), false, null).allNodes();
     }
 
     private static List<InternalNode> getFixedMapping(ConnectorBucketNodeMap connectorBucketNodeMap)

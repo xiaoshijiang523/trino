@@ -48,6 +48,7 @@ import io.trino.sql.tree.QualifiedName;
 import io.trino.sql.tree.RowDataType;
 import io.trino.sql.tree.SymbolReference;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -63,6 +64,7 @@ import static io.trino.metadata.LiteralFunction.LITERAL_FUNCTION_NAME;
 import static io.trino.metadata.ResolvedFunction.isResolved;
 import static io.trino.sql.tree.BooleanLiteral.FALSE_LITERAL;
 import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
+import static java.util.Arrays.asList;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
@@ -380,5 +382,19 @@ public final class ExpressionUtils
                 return node;
             }
         }, expression);
+    }
+
+    public static List<Expression> extractAllPredicates(Expression expression)
+    {
+        List<Expression> predicates = new ArrayList<>();
+        if (expression instanceof LogicalExpression) {
+            for (Expression expression1 : ((LogicalExpression) expression).getTerms()) {
+                predicates.addAll(extractAllPredicates(expression1));
+            }
+        }
+        else {
+            return asList(expression);
+        }
+        return predicates;
     }
 }

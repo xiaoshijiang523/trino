@@ -87,6 +87,11 @@ public class TaskId
         return Objects.hash(fullId);
     }
 
+    public int getId()
+    {
+        return parseInt(QueryId.parseDottedId(fullId, 4, "taskId").get(2));
+    }
+
     @Override
     public boolean equals(Object obj)
     {

@@ -139,7 +139,7 @@ public class HttpRemoteTaskFactory
             PartitionedSplitCountTracker partitionedSplitCountTracker,
             Set<DynamicFilterId> outboundDynamicFilterIds,
             Optional<DataSize> estimatedMemory,
-            boolean summarizeTaskInfo)
+            boolean summarizeTaskInfo, Optional<PlanNodeId> parent)
     {
         return new HttpRemoteTask(session,
                 taskId,
@@ -165,6 +165,7 @@ public class HttpRemoteTaskFactory
                 stats,
                 dynamicFilterService,
                 outboundDynamicFilterIds,
-                estimatedMemory);
+                estimatedMemory,
+                parent);
     }
 }

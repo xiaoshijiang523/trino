@@ -423,7 +423,8 @@ public class TestHttpRemoteTask
                 new NodeTaskMap.PartitionedSplitCountTracker(i -> {}),
                 outboundDynamicFilterIds,
                 Optional.empty(),
-                true);
+                true,
+                Optional.empty());
     }
 
     private static HttpRemoteTaskFactory createHttpRemoteTaskFactory(TestingTaskResource testingTaskResource)

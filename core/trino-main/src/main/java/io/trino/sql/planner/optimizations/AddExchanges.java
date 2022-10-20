@@ -42,6 +42,7 @@ import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
 import io.trino.sql.planner.plan.Assignments;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.ChildReplacer;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.DistinctLimitNode;
@@ -1294,6 +1295,17 @@ public class AddExchanges
         public PlanWithProperties visitCorrelatedJoin(CorrelatedJoinNode node, PreferredProperties preferredProperties)
         {
             throw new IllegalStateException("Unexpected node: " + node.getClass().getName());
+        }
+
+        @Override
+        public PlanWithProperties visitCTEScan(CTEScanNode node, PreferredProperties preferredProperties)
+        {
+            PlanWithProperties child = planChild(node, PreferredProperties.any());
+            PlanWithProperties cteNode = rebaseAndDeriveProperties(node, child);
+            PlanWithProperties cteNodeWithExchange = withDerivedProperties(
+                    partitionedExchange(idAllocator.getNextId(), REMOTE, cteNode.getNode(), cteNode.getNode().getOutputSymbols(), Optional.empty()),
+                    cteNode.getProperties());
+            return cteNodeWithExchange;
         }
 
         private PlanWithProperties planChild(PlanNode node, PreferredProperties preferredProperties)

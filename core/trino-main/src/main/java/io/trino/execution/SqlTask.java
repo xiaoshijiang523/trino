@@ -32,6 +32,7 @@ import io.trino.execution.buffer.OutputBuffer;
 import io.trino.execution.buffer.OutputBuffers;
 import io.trino.execution.buffer.PipelinedOutputBuffers;
 import io.trino.memory.QueryContext;
+import io.trino.operator.CommonTableExecutionContext;
 import io.trino.operator.PipelineContext;
 import io.trino.operator.PipelineStatus;
 import io.trino.operator.TaskContext;
@@ -414,7 +415,7 @@ public class SqlTask
             Optional<PlanFragment> fragment,
             List<SplitAssignment> splitAssignments,
             OutputBuffers outputBuffers,
-            Map<DynamicFilterId, Domain> dynamicFilterDomains)
+            Map<DynamicFilterId, Domain> dynamicFilterDomains, Optional<PlanNodeId> consumer, Map<String, CommonTableExecutionContext> cteCtx)
     {
         try {
             // trace token must be set first to make sure failure injection for getTaskResults requests works as expected
@@ -442,7 +443,8 @@ public class SqlTask
                             taskStateMachine,
                             outputBuffer,
                             fragment.get(),
-                            this::notifyStatusChanged);
+                            this::notifyStatusChanged,
+                            consumer, cteCtx);
                     taskHolderReference.compareAndSet(taskHolder, new TaskHolder(taskExecution));
                     needsPlan.set(false);
                     taskExecution.start();

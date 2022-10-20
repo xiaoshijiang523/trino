@@ -102,6 +102,11 @@ public class FeaturesConfig
     private boolean hideInaccessibleColumns;
     private boolean forceSpillingJoin;
 
+    // CTE optimization parameters
+    private boolean cteReuseEnabled = true;
+    private int maxQueueSize = 1024;
+    private int maxPrefetchQueueSize = 512;
+
     public enum DataIntegrityVerification
     {
         NONE,
@@ -477,6 +482,42 @@ public class FeaturesConfig
     public FeaturesConfig setForceSpillingJoin(boolean forceSpillingJoin)
     {
         this.forceSpillingJoin = forceSpillingJoin;
+        return this;
+    }
+
+    public boolean isCteReuseEnabled()
+    {
+        return cteReuseEnabled;
+    }
+
+    @Config("optimizer.cte-reuse-enabled")
+    public FeaturesConfig setCteReuseEnabled(boolean cteReuseEnabled)
+    {
+        this.cteReuseEnabled = cteReuseEnabled;
+        return this;
+    }
+
+    public int getMaxQueueSize()
+    {
+        return maxQueueSize;
+    }
+
+    @Config("optimizer.cte-max-queue-size")
+    public FeaturesConfig setMaxQueueSize(int maxQueueSize)
+    {
+        this.maxQueueSize = maxQueueSize;
+        return this;
+    }
+
+    public int getMaxPrefetchQueueSize()
+    {
+        return maxPrefetchQueueSize;
+    }
+
+    @Config("optimizer.cte-max-prefetch-queue-size")
+    public FeaturesConfig setMaxPrefetchQueueSize(int maxPrefetchQueueSize)
+    {
+        this.maxPrefetchQueueSize = maxPrefetchQueueSize;
         return this;
     }
 }

@@ -19,6 +19,7 @@ import io.trino.metadata.InternalNode;
 import io.trino.metadata.Split;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public interface NodeSelector
@@ -44,7 +45,7 @@ public interface NodeSelector
      * If we cannot find an assignment for a split, it is not included in the map. Also returns a future indicating when
      * to reattempt scheduling of this batch of splits, if some of them could not be scheduled.
      */
-    SplitPlacementResult computeAssignments(Set<Split> splits, List<RemoteTask> existingTasks);
+    SplitPlacementResult computeAssignments(Set<Split> splits, List<RemoteTask> existingTasks, Optional<StageExecution> stage);
 
     /**
      * Identifies the nodes for running the specified splits based on a precomputed fixed partitioning.

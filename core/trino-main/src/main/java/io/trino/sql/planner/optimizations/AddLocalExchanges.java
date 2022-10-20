@@ -34,6 +34,7 @@ import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.optimizations.StreamPropertyDerivations.StreamProperties;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.DistinctLimitNode;
 import io.trino.sql.planner.plan.EnforceSingleRowNode;
@@ -834,6 +835,13 @@ public class AddLocalExchanges
             PlanWithProperties index = new PlanWithProperties(node.getIndexSource(), indexStreamProperties);
 
             return rebaseAndDeriveProperties(node, ImmutableList.of(probe, index));
+        }
+
+        @Override
+        public PlanWithProperties visitCTEScan(CTEScanNode node, StreamPreferredProperties parentPreferences)
+        {
+            PlanWithProperties planWithProperties = visitPlan(node, parentPreferences);
+            return planWithProperties;
         }
 
         //

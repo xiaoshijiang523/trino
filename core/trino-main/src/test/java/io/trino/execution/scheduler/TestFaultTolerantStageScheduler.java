@@ -1067,6 +1067,8 @@ public class TestFaultTolerantStageScheduler
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), ImmutableList.of(probeColumnSymbol, buildColumnSymbol)),
                 StatsAndCosts.empty(),
                 ImmutableList.of(),
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
     }
 
@@ -1090,6 +1092,8 @@ public class TestFaultTolerantStageScheduler
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), ImmutableList.of(outputColumn)),
                 StatsAndCosts.empty(),
                 ImmutableList.of(),
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
     }
 

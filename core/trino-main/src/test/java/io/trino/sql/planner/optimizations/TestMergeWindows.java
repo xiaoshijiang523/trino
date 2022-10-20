@@ -16,6 +16,7 @@ package io.trino.sql.planner.optimizations;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.trino.Session;
 import io.trino.spi.connector.SortOrder;
 import io.trino.sql.planner.RuleStatsRecorder;
 import io.trino.sql.planner.assertions.BasePlanTest;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static io.trino.SystemSessionProperties.CTE_REUSE_ENABLED;
 import static io.trino.sql.planner.PlanOptimizers.columnPruningRules;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.any;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.anyNot;
@@ -467,6 +469,9 @@ public class TestMergeWindows
                         rShipdateAlias, "shipdate"));
 
         assertUnitPlan(sql,
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 anyTree(
                         filter("SUM = AVG",
                                 join(INNER, builder -> builder
@@ -603,5 +608,22 @@ public class TestMergeWindows
                                 .addAll(columnPruningRules(getQueryRunner().getMetadata()))
                                 .build()));
         assertPlan(sql, pattern, optimizers);
+    }
+
+    private void assertUnitPlan(@Language("SQL") String sql, Session session, PlanMatchPattern pattern)
+    {
+        List<PlanOptimizer> optimizers = ImmutableList.of(
+                new UnaliasSymbolReferences(getQueryRunner().getMetadata()),
+                new IterativeOptimizer(
+                        getQueryRunner().getPlannerContext(),
+                        new RuleStatsRecorder(),
+                        getQueryRunner().getStatsCalculator(),
+                        getQueryRunner().getEstimatedExchangesCostCalculator(),
+                        ImmutableSet.<Rule<?>>builder()
+                                .add(new RemoveRedundantIdentityProjections())
+                                .addAll(GatherAndMergeWindows.rules())
+                                .addAll(columnPruningRules(getQueryRunner().getMetadata()))
+                                .build()));
+        assertPlan(sql, session, pattern, optimizers);
     }
 }

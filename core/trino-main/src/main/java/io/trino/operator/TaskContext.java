@@ -36,6 +36,7 @@ import io.trino.memory.context.MemoryTrackingContext;
 import io.trino.spi.predicate.Domain;
 import io.trino.sql.planner.LocalDynamicFiltersCollector;
 import io.trino.sql.planner.plan.DynamicFilterId;
+import io.trino.sql.planner.plan.PlanNodeId;
 import org.joda.time.DateTime;
 
 import javax.annotation.concurrent.GuardedBy;
@@ -105,6 +106,7 @@ public class TaskContext
     // as well as from local build-side of replicated joins. It is also shared
     // with multiple table scans (e.g. co-located joins).
     private final LocalDynamicFiltersCollector localDynamicFiltersCollector;
+    private final PlanNodeId consumerId;
 
     public static TaskContext createTaskContext(
             QueryContext queryContext,
@@ -116,7 +118,8 @@ public class TaskContext
             MemoryTrackingContext taskMemoryContext,
             Runnable notifyStatusChanged,
             boolean perOperatorCpuTimerEnabled,
-            boolean cpuTimerEnabled)
+            boolean cpuTimerEnabled,
+            PlanNodeId consumerId)
     {
         TaskContext taskContext = new TaskContext(
                 queryContext,
@@ -128,7 +131,8 @@ public class TaskContext
                 taskMemoryContext,
                 notifyStatusChanged,
                 perOperatorCpuTimerEnabled,
-                cpuTimerEnabled);
+                cpuTimerEnabled,
+                consumerId);
         taskContext.initialize();
         return taskContext;
     }
@@ -143,7 +147,8 @@ public class TaskContext
             MemoryTrackingContext taskMemoryContext,
             Runnable notifyStatusChanged,
             boolean perOperatorCpuTimerEnabled,
-            boolean cpuTimerEnabled)
+            boolean cpuTimerEnabled,
+            PlanNodeId consumerId)
     {
         this.taskStateMachine = requireNonNull(taskStateMachine, "taskStateMachine is null");
         this.gcMonitor = requireNonNull(gcMonitor, "gcMonitor is null");
@@ -159,6 +164,7 @@ public class TaskContext
         this.localDynamicFiltersCollector = new LocalDynamicFiltersCollector(session);
         this.perOperatorCpuTimerEnabled = perOperatorCpuTimerEnabled;
         this.cpuTimerEnabled = cpuTimerEnabled;
+        this.consumerId = consumerId;
     }
 
     // the state change listener is added here in a separate initialize() method
@@ -612,5 +618,20 @@ public class TaskContext
     public void sourceTaskFailed(TaskId taskId, Throwable failure)
     {
         taskStateMachine.sourceTaskFailed(taskId, failure);
+    }
+
+    public PlanNodeId getConsumerId()
+    {
+        return consumerId;
+    }
+
+    public Executor getNotificationExecutor()
+    {
+        return notificationExecutor;
+    }
+
+    public int getTaskCount()
+    {
+        return queryContext.getTaskCount();
     }
 }

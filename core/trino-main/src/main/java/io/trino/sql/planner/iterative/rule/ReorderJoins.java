@@ -73,6 +73,7 @@ import static com.google.common.collect.Sets.powerSet;
 import static io.trino.SystemSessionProperties.getJoinDistributionType;
 import static io.trino.SystemSessionProperties.getJoinReorderingStrategy;
 import static io.trino.SystemSessionProperties.getMaxReorderedJoins;
+import static io.trino.SystemSessionProperties.isCTEReuseEnabled;
 import static io.trino.sql.ExpressionUtils.and;
 import static io.trino.sql.ExpressionUtils.combineConjuncts;
 import static io.trino.sql.ExpressionUtils.extractConjuncts;
@@ -147,11 +148,12 @@ public class ReorderJoins
         // try reorder joins without projection pushdown
         multiJoinNode = toMultiJoinNode(plannerContext, joinNode, context, false, typeAnalyzer);
         JoinEnumerationResult resultWithoutProjectionPushdown = chooseJoinOrder(multiJoinNode, context);
-        if (resultWithoutProjectionPushdown.getPlanNode().isEmpty()
-                || costComparator.compare(context.getSession(), resultWithProjectionPushdown.cost, resultWithoutProjectionPushdown.cost) < 0) {
-            return Result.ofPlanNode(resultWithProjectionPushdown.getPlanNode().get());
+        if (!isCTEReuseEnabled(context.getSession())) {
+            if (resultWithoutProjectionPushdown.getPlanNode().isEmpty()
+                    || costComparator.compare(context.getSession(), resultWithProjectionPushdown.cost, resultWithoutProjectionPushdown.cost) < 0) {
+                return Result.ofPlanNode(resultWithProjectionPushdown.getPlanNode().get());
+            }
         }
-
         return Result.ofPlanNode(resultWithoutProjectionPushdown.getPlanNode().get());
     }
 

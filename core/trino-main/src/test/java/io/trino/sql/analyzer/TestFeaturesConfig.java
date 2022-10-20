@@ -63,7 +63,10 @@ public class TestFeaturesConfig
                 .setIncrementalHashArrayLoadFactorEnabled(true)
                 .setHideInaccessibleColumns(false)
                 .setAllowSetViewAuthorization(false)
-                .setForceSpillingJoin(false));
+                .setForceSpillingJoin(false)
+                .setCteReuseEnabled(true)
+                .setMaxQueueSize(1024)
+                .setMaxPrefetchQueueSize(512));
     }
 
     @Test
@@ -98,6 +101,9 @@ public class TestFeaturesConfig
                 .put("hide-inaccessible-columns", "true")
                 .put("legacy.allow-set-view-authorization", "true")
                 .put("force-spilling-join-operator", "true")
+                .put("optimizer.cte-reuse-enabled", "false")
+                .put("optimizer.cte-max-queue-size", "512")
+                .put("optimizer.cte-max-prefetch-queue-size", "256")
                 .buildOrThrow();
 
         FeaturesConfig expected = new FeaturesConfig()
@@ -128,7 +134,10 @@ public class TestFeaturesConfig
                 .setIncrementalHashArrayLoadFactorEnabled(false)
                 .setHideInaccessibleColumns(true)
                 .setAllowSetViewAuthorization(true)
-                .setForceSpillingJoin(true);
+                .setForceSpillingJoin(true)
+                .setCteReuseEnabled(false)
+                .setMaxQueueSize(512)
+                .setMaxPrefetchQueueSize(256);
         assertFullMapping(properties, expected);
     }
 }

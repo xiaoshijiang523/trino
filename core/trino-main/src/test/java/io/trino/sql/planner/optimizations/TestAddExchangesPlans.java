@@ -25,8 +25,10 @@ import io.trino.sql.planner.OptimizerConfig.JoinReorderingStrategy;
 import io.trino.sql.planner.assertions.BasePlanTest;
 import io.trino.sql.planner.assertions.PlanMatchPattern;
 import io.trino.sql.planner.assertions.RowNumberSymbolMatcher;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.ExchangeNode;
 import io.trino.sql.planner.plan.FilterNode;
+import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.JoinNode.DistributionType;
 import io.trino.sql.planner.plan.MarkDistinctNode;
 import io.trino.sql.tree.GenericLiteral;
@@ -34,8 +36,10 @@ import io.trino.sql.tree.LongLiteral;
 import io.trino.testing.LocalQueryRunner;
 import org.testng.annotations.Test;
 
+import java.util.List;
 import java.util.Optional;
 
+import static io.trino.SystemSessionProperties.CTE_REUSE_ENABLED;
 import static io.trino.SystemSessionProperties.ENABLE_DYNAMIC_FILTERING;
 import static io.trino.SystemSessionProperties.ENABLE_STATS_CALCULATOR;
 import static io.trino.SystemSessionProperties.IGNORE_DOWNSTREAM_PREFERENCES;
@@ -779,6 +783,70 @@ public class TestAddExchangesPlans
                                 exchange(REMOTE, REPARTITION,
                                         anyTree(
                                                 tableScan("orders"))))));
+    }
+
+    @Test
+    public void testExchangeNodeAboveCTESCanNode()
+    {
+        List<PlanOptimizer> allOptimizers = getQueryRunner().getPlanOptimizers(false);
+
+        assertPlan("with ss as (select * from orders), sd as (select * from ss) " +
+                        " select * from ss,sd where ss.orderkey = sd.orderkey",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "true")
+                        .build(),
+                anyTree(node(JoinNode.class,
+                        anyTree(exchange(node(CTEScanNode.class, tableScan("orders")))),
+                        anyTree(exchange(node(CTEScanNode.class, tableScan("orders")))))),
+                allOptimizers);
+    }
+
+    @Test
+    public void testCTESCanNode()
+    {
+        List<PlanOptimizer> allOptimizers = getQueryRunner().getPlanOptimizers(false);
+
+        assertPlan("with s as (select * from orders ) " +
+                        " select * from s ss,s sd where ss.orderkey = sd.orderkey",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "true")
+                        .build(),
+                anyTree(node(JoinNode.class,
+                        anyTree(exchange(node(CTEScanNode.class, tableScan("orders")))),
+                        anyTree(exchange(node(CTEScanNode.class, tableScan("orders")))))),
+                allOptimizers);
+    }
+
+    @Test
+    public void testCTESCanNodeUnion()
+    {
+        List<PlanOptimizer> allOptimizers = getQueryRunner().getPlanOptimizers(false);
+
+        assertPlan("with a as (select totalprice from orders ) " +
+                        "select count(1) from a union select sum(totalprice) from a",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "true")
+                        .build(),
+                anyTree(
+                        exchange(anyTree(exchange(node(CTEScanNode.class, tableScan("orders")))),
+                        anyTree(exchange(node(CTEScanNode.class, tableScan("orders")))))),
+                allOptimizers);
+    }
+
+    @Test
+    public void testCTESCanNodePredicate()
+    {
+        List<PlanOptimizer> allOptimizers = getQueryRunner().getPlanOptimizers(false);
+
+        assertPlan("with a as (select totalprice, orderdate from orders ) " +
+                        "select count(1) from a  where orderdate=date('1994-02-12') union select sum(totalprice) from a where orderdate=date('1994-02-13')",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "true")
+                        .build(),
+                anyTree(
+                        exchange(anyTree(exchange(node(CTEScanNode.class, any(tableScan("orders"))))),
+                                anyTree(exchange(node(CTEScanNode.class, any(tableScan("orders"))))))),
+                allOptimizers);
     }
 
     private Session spillEnabledWithJoinDistributionType(JoinDistributionType joinDistributionType)

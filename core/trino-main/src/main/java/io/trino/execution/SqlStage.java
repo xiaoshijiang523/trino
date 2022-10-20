@@ -72,6 +72,7 @@ public final class SqlStage
     private final Set<TaskId> finishedTasks = new HashSet<>();
     @GuardedBy("this")
     private final Set<TaskId> tasksWithFinalInfo = new HashSet<>();
+    private PlanNodeId parentId;
 
     public static SqlStage createSqlStage(
             StageId stageId,
@@ -243,7 +244,8 @@ public final class SqlStage
                 nodeTaskMap.createPartitionedSplitCountTracker(node, taskId),
                 outboundDynamicFilterIds,
                 estimatedMemory,
-                summarizeTaskInfo);
+                summarizeTaskInfo,
+                Optional.ofNullable(parentId));
 
         noMoreSplits.forEach(task::noMoreSplits);
 
@@ -328,5 +330,15 @@ public final class SqlStage
                 finalUsageReported = true;
             }
         }
+    }
+
+    public PlanNodeId getParentId()
+    {
+        return parentId;
+    }
+
+    public void setParentId(PlanNodeId parentId)
+    {
+        this.parentId = parentId;
     }
 }

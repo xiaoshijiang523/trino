@@ -168,7 +168,6 @@ public class EffectivePredicateExtractor
 
             // Remove non-deterministic conjuncts
             predicate = filterDeterministicConjuncts(metadata, predicate);
-
             return combineConjuncts(metadata, predicate, underlyingPredicate);
         }
 

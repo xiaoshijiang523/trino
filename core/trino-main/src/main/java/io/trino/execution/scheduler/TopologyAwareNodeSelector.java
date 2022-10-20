@@ -27,15 +27,19 @@ import io.trino.metadata.Split;
 import io.trino.spi.HostAddress;
 import io.trino.spi.SplitWeight;
 import io.trino.spi.TrinoException;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import javax.annotation.Nullable;
 
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.execution.scheduler.NetworkLocation.ROOT_LOCATION;
@@ -65,6 +69,7 @@ public class TopologyAwareNodeSelector
     private final int maxUnacknowledgedSplitsPerTask;
     private final List<CounterStat> topologicalSplitCounters;
     private final NetworkTopology networkTopology;
+    private final Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes;
 
     public TopologyAwareNodeSelector(
             InternalNodeManager nodeManager,
@@ -76,7 +81,8 @@ public class TopologyAwareNodeSelector
             long maxPendingSplitsWeightPerTask,
             int maxUnacknowledgedSplitsPerTask,
             List<CounterStat> topologicalSplitCounters,
-            NetworkTopology networkTopology)
+            NetworkTopology networkTopology,
+            Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes)
     {
         this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
         this.nodeTaskMap = requireNonNull(nodeTaskMap, "nodeTaskMap is null");
@@ -89,6 +95,7 @@ public class TopologyAwareNodeSelector
         checkArgument(maxUnacknowledgedSplitsPerTask > 0, "maxUnacknowledgedSplitsPerTask must be > 0, found: %s", maxUnacknowledgedSplitsPerTask);
         this.topologicalSplitCounters = requireNonNull(topologicalSplitCounters, "topologicalSplitCounters is null");
         this.networkTopology = requireNonNull(networkTopology, "networkTopology is null");
+        this.feederScheduledNodes = feederScheduledNodes;
     }
 
     @Override
@@ -117,7 +124,7 @@ public class TopologyAwareNodeSelector
     }
 
     @Override
-    public SplitPlacementResult computeAssignments(Set<Split> splits, List<RemoteTask> existingTasks)
+    public SplitPlacementResult computeAssignments(Set<Split> splits, List<RemoteTask> existingTasks, Optional<StageExecution> stage)
     {
         NodeMap nodeMap = this.nodeMap.get().get();
         Multimap<InternalNode, Split> assignment = HashMultimap.create();
@@ -203,7 +210,27 @@ public class TopologyAwareNodeSelector
         else {
             blocked = toWhenHasSplitQueueSpaceFuture(blockedExactNodes, existingTasks, calculateLowWatermark(maxPendingForWildcardNetworkAffinity));
         }
+
+        // Check if its CTE node and its feeder
+        if (stage.isPresent() && stage.get().getFragment().getFeederCTEId().isPresent()) {
+            updateFeederNodeAndSplitCount(stage.get(), assignment);
+        }
         return new SplitPlacementResult(blocked, assignment);
+    }
+
+    private void updateFeederNodeAndSplitCount(StageExecution stage, Multimap<InternalNode, Split> assignment)
+    {
+        FixedNodeScheduleData data;
+        if (feederScheduledNodes.containsKey(stage.getFragment().getFeederCTEParentId().get())) {
+            data = feederScheduledNodes.get(stage.getFragment().getFeederCTEParentId().get());
+            data.updateSplitCount(assignment.size());
+            data.updateAssignedNodes(assignment.keys().stream().collect(Collectors.toSet()));
+        }
+        else {
+            data = new FixedNodeScheduleData(assignment.size(), assignment.keys().stream().collect(Collectors.toSet()));
+        }
+
+        feederScheduledNodes.put(stage.getFragment().getFeederCTEParentId().get(), data);
     }
 
     /**

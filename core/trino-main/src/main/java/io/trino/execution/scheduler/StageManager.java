@@ -37,8 +37,10 @@ import io.trino.sql.planner.SubPlan;
 import io.trino.sql.planner.plan.PlanFragmentId;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanNodeId;
+import io.trino.sql.planner.plan.RemoteSourceNode;
 import io.trino.sql.planner.plan.TableScanNode;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,6 +69,7 @@ class StageManager
     private final StageId rootStageId;
     private final Map<StageId, Set<StageId>> children;
     private final Map<StageId, StageId> parents;
+    private static final Set<PlanFragmentId> visitedPlanFrags = new HashSet<>();
 
     static StageManager create(
             QueryStateMachine queryStateMachine,
@@ -86,8 +89,13 @@ class StageManager
         StageId rootStageId = null;
         ImmutableMap.Builder<StageId, Set<StageId>> children = ImmutableMap.builder();
         ImmutableMap.Builder<StageId, StageId> parents = ImmutableMap.builder();
+        Set<PlanFragmentId> childSet = new HashSet<>();
         for (SubPlan planNode : Traverser.forTree(SubPlan::getChildren).breadthFirst(planTree)) {
             PlanFragment fragment = planNode.getFragment();
+            if (visitedPlanFrags.contains(planNode.getFragment().getId())) {
+                continue;
+            }
+            visitedPlanFrags.add(planNode.getFragment().getId());
             SqlStage stage = createSqlStage(
                     getStageId(session.getQueryId(), fragment.getId()),
                     fragment,
@@ -100,7 +108,7 @@ class StageManager
                     schedulerStats);
             StageId stageId = stage.getStageId();
             stages.put(stageId, stage);
-            stagesInTopologicalOrder.add(stage);
+
             if (fragment.getPartitioning().isCoordinatorOnly()) {
                 coordinatorStagesInTopologicalOrder.add(stage);
             }
@@ -111,11 +119,30 @@ class StageManager
                 rootStageId = stageId;
             }
             Set<StageId> childStageIds = planNode.getChildren().stream()
-                    .map(childStage -> getStageId(session.getQueryId(), childStage.getFragment().getId()))
+                    .filter(childStage -> !childSet.contains(childStage.getFragment().getId()))
+                    .map(childStage -> {
+                        childSet.add(childStage.getFragment().getId());
+                        return getStageId(session.getQueryId(), childStage.getFragment().getId()); })
                     .collect(toImmutableSet());
             children.put(stageId, childStageIds);
-            childStageIds.forEach(child -> parents.put(child, stageId));
+            if (!parents.buildOrThrow().isEmpty()) {
+                Optional<RemoteSourceNode> parentNode = stages.buildOrThrow()
+                        .get(parents.buildOrThrow().get(stageId))
+                        .getFragment()
+                        .getRemoteSourceNodes()
+                        .stream()
+                        .filter(x -> x.getSourceFragmentIds().contains(stage.getFragment().getId()))
+                        .findAny();
+                checkArgument(parentNode.isPresent(), "Couldn't find parent of a CTE node");
+                stage.setParentId(parentNode.get().getId());
+            }
+            childStageIds.forEach(child -> {
+                if (!parents.buildOrThrow().containsKey(child)) {
+                    parents.put(child, stageId);
+                }
+            });
         }
+        visitedPlanFrags.clear();
         StageManager stageManager = new StageManager(
                 queryStateMachine,
                 stages.buildOrThrow(),

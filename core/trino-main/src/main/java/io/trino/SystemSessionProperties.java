@@ -174,6 +174,11 @@ public final class SystemSessionProperties
     public static final String USE_EXACT_PARTITIONING = "use_exact_partitioning";
     public static final String FORCE_SPILLING_JOIN = "force_spilling_join";
 
+    // CTE Optimization configurations
+    public static final String CTE_REUSE_ENABLED = "cte_reuse_enabled";
+    public static final String CTE_MAX_QUEUE_SIZE = "cte_max_queue_size";
+    public static final String CTE_MAX_PREFETCH_QUEUE_SIZE = "cte_max_prefetch_queue_size";
+
     private final List<PropertyMetadata<?>> sessionProperties;
 
     public SystemSessionProperties()
@@ -853,6 +858,21 @@ public final class SystemSessionProperties
                         FORCE_SPILLING_JOIN,
                         "Force the usage of spliing join operator in favor of the non-spilling one, even if spill is not enabled",
                         featuresConfig.isForceSpillingJoin(),
+                        false),
+                booleanProperty(
+                        CTE_REUSE_ENABLED,
+                        "Enabled CTE reuse",
+                        featuresConfig.isCteReuseEnabled(),
+                        false),
+                integerProperty(
+                        CTE_MAX_QUEUE_SIZE,
+                        "Max queue size to store cte data (for every cte reference)",
+                        featuresConfig.getMaxQueueSize(),
+                        false),
+                integerProperty(
+                        CTE_MAX_PREFETCH_QUEUE_SIZE,
+                        "Max prefetch queue size",
+                        featuresConfig.getMaxPrefetchQueueSize(),
                         false));
     }
 
@@ -1525,5 +1545,20 @@ public final class SystemSessionProperties
     public static boolean isForceSpillingOperator(Session session)
     {
         return session.getSystemProperty(FORCE_SPILLING_JOIN, Boolean.class);
+    }
+
+    public static boolean isCTEReuseEnabled(Session session)
+    {
+        return session.getSystemProperty(CTE_REUSE_ENABLED, Boolean.class);
+    }
+
+    public static int getCteMaxPrefetchQueueSize(Session session)
+    {
+        return session.getSystemProperty(CTE_MAX_PREFETCH_QUEUE_SIZE, Integer.class);
+    }
+
+    public static int getCteMaxQueueSize(Session session)
+    {
+        return session.getSystemProperty(CTE_MAX_QUEUE_SIZE, Integer.class);
     }
 }

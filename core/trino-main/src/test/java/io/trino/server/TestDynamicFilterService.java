@@ -1088,6 +1088,8 @@ public class TestDynamicFilterService
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), ImmutableList.of(symbol)),
                 StatsAndCosts.empty(),
                 ImmutableList.of(),
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
     }
 }

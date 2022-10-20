@@ -102,7 +102,7 @@ public class BenchmarkNodeScheduler
         Iterator<Split> splits = data.getSplits().iterator();
         Set<Split> batch = new HashSet<>();
         while (splits.hasNext() || !batch.isEmpty()) {
-            Multimap<InternalNode, Split> assignments = data.getNodeSelector().computeAssignments(batch, remoteTasks).getAssignments();
+            Multimap<InternalNode, Split> assignments = data.getNodeSelector().computeAssignments(batch, remoteTasks, Optional.empty()).getAssignments();
             for (InternalNode node : assignments.keySet()) {
                 MockRemoteTaskFactory.MockRemoteTask remoteTask = data.getTaskMap().get(node);
                 remoteTask.addSplits(ImmutableMultimap.<PlanNodeId, Split>builder()
@@ -173,7 +173,7 @@ public class BenchmarkNodeScheduler
             Session session = TestingSession.testSessionBuilder()
                     .setSystemProperty(MAX_UNACKNOWLEDGED_SPLITS_PER_TASK, Integer.toString(Integer.MAX_VALUE))
                     .build();
-            nodeSelector = nodeScheduler.createNodeSelector(session, Optional.of(TEST_CATALOG_HANDLE));
+            nodeSelector = nodeScheduler.createNodeSelector(session, Optional.of(TEST_CATALOG_HANDLE), false, null);
         }
 
         @TearDown

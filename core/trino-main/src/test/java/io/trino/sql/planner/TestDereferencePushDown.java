@@ -22,6 +22,7 @@ import io.trino.sql.tree.DoubleLiteral;
 import io.trino.sql.tree.GenericLiteral;
 import org.testng.annotations.Test;
 
+import static io.trino.SystemSessionProperties.CTE_REUSE_ENABLED;
 import static io.trino.SystemSessionProperties.FILTERING_SEMI_JOIN_TO_INNER;
 import static io.trino.SystemSessionProperties.MERGE_PROJECT_WITH_VALUES;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.any;
@@ -46,6 +47,9 @@ public class TestDereferencePushDown
     {
         assertPlan("WITH t(msg) AS (VALUES ROW(CAST(ROW(1, 2.0) AS ROW(x BIGINT, y DOUBLE))), ROW(CAST(ROW(3, 4.0) AS ROW(x BIGINT, y DOUBLE)))) " +
                         "SELECT a.msg.x, a.msg, b.msg.y FROM t a CROSS JOIN t b",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 output(ImmutableList.of("a_msg_x", "a_msg", "b_msg_y"),
                         strictProject(
                                 ImmutableMap.of(
@@ -66,6 +70,9 @@ public class TestDereferencePushDown
                         "SELECT b.msg.x " +
                         "FROM t a, t b " +
                         "WHERE a.msg.y = b.msg.y",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 output(
                         project(
                                 ImmutableMap.of("b_x", expression("b_x")),
@@ -82,6 +89,9 @@ public class TestDereferencePushDown
                         "SELECT a.msg.y " +
                         "FROM t a JOIN t b ON a.msg.y = b.msg.y " +
                         "WHERE a.msg.x > BIGINT '5'",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 output(ImmutableList.of("a_y"),
                         values("a_y")));
 
@@ -89,6 +99,9 @@ public class TestDereferencePushDown
                         "SELECT b.msg.x " +
                         "FROM t a JOIN t b ON a.msg.y = b.msg.y " +
                         "WHERE a.msg.x + b.msg.x < BIGINT '10'",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 output(ImmutableList.of("b_x"),
                         join(INNER, builder -> builder
                                 .left(
@@ -111,6 +124,9 @@ public class TestDereferencePushDown
                         "SELECT a.msg.y, b.msg.x " +
                         "FROM t a CROSS JOIN t b " +
                         "WHERE a.msg.x = 7 OR IS_FINITE(b.msg.y)",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 any(
                         project(
                                 ImmutableMap.of("a_y", expression("a_y"), "b_x", expression("b_x")),
@@ -185,6 +201,7 @@ public class TestDereferencePushDown
                         "msg.x IN (SELECT msg.z FROM t)",
                 Session.builder(getQueryRunner().getDefaultSession())
                         .setSystemProperty(FILTERING_SEMI_JOIN_TO_INNER, "false")
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
                         .build(),
                 anyTree(
                         semiJoin("a_x", "b_z", "semi_join_symbol",
@@ -199,6 +216,9 @@ public class TestDereferencePushDown
     {
         assertPlan("WITH t(msg) AS (VALUES ROW(CAST(ROW(1, 2.0) AS ROW(x BIGINT, y DOUBLE))), ROW(CAST(ROW(3, 4.0) AS ROW(x BIGINT, y DOUBLE))))" +
                         "SELECT msg.x * 3  FROM t limit 1",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 anyTree(
                         strictProject(ImmutableMap.of("x_into_3", expression("msg_x * BIGINT '3'")),
                                 limit(1,
@@ -211,6 +231,9 @@ public class TestDereferencePushDown
                         "FROM t a, t b " +
                         "WHERE a.msg.y = b.msg.y " +
                         "LIMIT 100",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 output(
                         limit(
                                 100,
@@ -230,6 +253,9 @@ public class TestDereferencePushDown
                         "FROM t a JOIN t b ON a.msg.y = b.msg.y " +
                         "WHERE a.msg.x > BIGINT '5' " +
                         "LIMIT 100",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 anyTree(limit(100, values("a_y"))));
 
         assertPlan("WITH t(msg) AS (VALUES ROW(CAST(ROW(1, 2.0) AS ROW(x BIGINT, y DOUBLE))))" +
@@ -237,6 +263,9 @@ public class TestDereferencePushDown
                         "FROM t a JOIN t b ON a.msg.y = b.msg.y " +
                         "WHERE a.msg.x + b.msg.x < BIGINT '10' " +
                         "LIMIT 100",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 anyTree(
                         join(INNER, builder -> builder
                                 .left(
@@ -259,6 +288,9 @@ public class TestDereferencePushDown
                         "FROM t a JOIN t b ON a.msg.y = b.msg.y " +
                         "CROSS JOIN UNNEST (a.array) " +
                         "WHERE a.msg.x + b.msg.x < BIGINT '10'",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 output(ImmutableList.of("expr"),
                         strictProject(ImmutableMap.of("expr", expression("a_x")),
                                 unnest(

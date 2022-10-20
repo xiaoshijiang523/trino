@@ -29,6 +29,7 @@ import io.trino.metadata.InternalNode;
 import io.trino.metadata.InternalNodeManager;
 import io.trino.spi.HostAddress;
 import io.trino.spi.SplitWeight;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import javax.inject.Inject;
 
@@ -68,6 +69,8 @@ public class TopologyAwareNodeSelectorFactory
 
     private final List<CounterStat> placementCounters;
     private final Map<String, CounterStat> placementCountersByName;
+    private final boolean optimizedLocalScheduling;
+    private final NodeSchedulerConfig.SplitsBalancingPolicy splitsBalancingPolicy;
 
     @Inject
     public TopologyAwareNodeSelectorFactory(
@@ -91,7 +94,8 @@ public class TopologyAwareNodeSelectorFactory
         checkArgument(maxSplitsPerNode >= maxPendingSplitsPerTask, "maxSplitsPerNode must be > maxPendingSplitsPerTask");
         this.maxSplitsWeightPerNode = SplitWeight.rawValueForStandardSplitCount(maxSplitsPerNode);
         this.maxPendingSplitsWeightPerTask = SplitWeight.rawValueForStandardSplitCount(maxPendingSplitsPerTask);
-
+        this.optimizedLocalScheduling = schedulerConfig.getOptimizedLocalScheduling();
+        this.splitsBalancingPolicy = schedulerConfig.getSplitsBalancingPolicy();
         Builder<CounterStat> placementCounters = ImmutableList.builder();
         ImmutableMap.Builder<String, CounterStat> placementCountersByName = ImmutableMap.builder();
 
@@ -116,7 +120,7 @@ public class TopologyAwareNodeSelectorFactory
     }
 
     @Override
-    public NodeSelector createNodeSelector(Session session, Optional<CatalogHandle> catalogHandle)
+    public NodeSelector createNodeSelector(Session session, Optional<CatalogHandle> catalogHandle, boolean keepConsumerOnFeederNodes, Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes)
     {
         requireNonNull(catalogHandle, "catalogHandle is null");
 
@@ -125,6 +129,9 @@ public class TopologyAwareNodeSelectorFactory
         Supplier<NodeMap> nodeMap = Suppliers.memoizeWithExpiration(
                 () -> createNodeMap(catalogHandle),
                 5, TimeUnit.SECONDS);
+        if (keepConsumerOnFeederNodes) {
+            return new SimpleFixedNodeSelector(nodeManager, nodeTaskMap, includeCoordinator, nodeMap, minCandidates, maxSplitsWeightPerNode, maxPendingSplitsWeightPerTask, getMaxUnacknowledgedSplitsPerTask(session), splitsBalancingPolicy, optimizedLocalScheduling, feederScheduledNodes);
+        }
 
         return new TopologyAwareNodeSelector(
                 nodeManager,
@@ -136,7 +143,8 @@ public class TopologyAwareNodeSelectorFactory
                 maxPendingSplitsWeightPerTask,
                 getMaxUnacknowledgedSplitsPerTask(session),
                 placementCounters,
-                networkTopology);
+                networkTopology,
+                feederScheduledNodes);
     }
 
     private NodeMap createNodeMap(Optional<CatalogHandle> catalogHandle)

@@ -134,7 +134,7 @@ public class TestSqlTaskExecution
                             true,
                             ImmutableList.of(testingScanOperatorFactory, taskOutputOperatorFactory),
                             OptionalInt.empty())),
-                    ImmutableList.of(TABLE_SCAN_NODE_ID));
+                    ImmutableList.of(TABLE_SCAN_NODE_ID), Optional.empty());
             TaskContext taskContext = newTestingTaskContext(taskNotificationExecutor, driverYieldExecutor, taskStateMachine);
             SqlTaskExecution sqlTaskExecution = new SqlTaskExecution(
                     taskStateMachine,
@@ -199,7 +199,8 @@ public class TestSqlTaskExecution
                 driverYieldExecutor,
                 DataSize.of(1, MEGABYTE),
                 new SpillSpaceTracker(DataSize.of(1, GIGABYTE)));
-        return queryContext.addTaskContext(taskStateMachine, TEST_SESSION, () -> {}, false, false);
+        return queryContext.addTaskContext(taskStateMachine, TEST_SESSION, () -> {}, false, false,
+                Optional.empty());
     }
 
     private PartitionedOutputBuffer newTestingOutputBuffer(ScheduledExecutorService taskNotificationExecutor)

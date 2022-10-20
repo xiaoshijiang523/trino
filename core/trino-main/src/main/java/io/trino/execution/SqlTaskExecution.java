@@ -154,7 +154,7 @@ public class SqlTaskExecution
                     .collect(toImmutableMap(identity(), ignore -> new PendingSplitsForPlanNode()));
             sourceStartOrder = localExecutionPlan.getPartitionedSourceOrder();
 
-            checkArgument(this.driverRunnerFactoriesWithSplitLifeCycle.keySet().equals(partitionedSources),
+            checkArgument(!localExecutionPlan.getFeederCTEId().isPresent() || this.driverRunnerFactoriesWithSplitLifeCycle.keySet().equals(partitionedSources),
                     "Fragment is partitioned, but not all partitioned drivers were found");
 
             // don't register the task if it is already completed (most likely failed during planning above)
@@ -254,8 +254,10 @@ public class SqlTaskExecution
             else {
                 // tell existing drivers about the new splits
                 DriverSplitRunnerFactory factory = driverRunnerFactoriesWithRemoteSource.get(assignment.getPlanNodeId());
-                factory.enqueueSplits(assignment.getSplits(), assignment.isNoMoreSplits());
-                updatedUnpartitionedSources.add(assignment.getPlanNodeId());
+                if (factory != null) {
+                    factory.enqueueSplits(assignment.getSplits(), assignment.isNoMoreSplits());
+                    updatedUnpartitionedSources.add(assignment.getPlanNodeId());
+                }
             }
         }
 

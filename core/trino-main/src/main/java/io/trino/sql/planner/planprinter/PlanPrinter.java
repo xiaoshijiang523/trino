@@ -59,6 +59,7 @@ import io.trino.sql.planner.plan.AggregationNode.Aggregation;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
 import io.trino.sql.planner.plan.Assignments;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.DeleteNode;
 import io.trino.sql.planner.plan.DistinctLimitNode;
@@ -573,6 +574,8 @@ public class PlanPrinter
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), plan.getOutputSymbols()),
                 StatsAndCosts.empty(),
                 ImmutableList.of(),
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
         return GraphvizPrinter.printLogical(ImmutableList.of(fragment));
     }
@@ -1665,6 +1668,13 @@ public class PlanPrinter
                             "correlation", formatSymbols(node.getCorrelation()),
                             "filter", formatFilter(node.getFilter())));
 
+            return processChildren(node, context);
+        }
+
+        @Override
+        public Void visitCTEScan(CTEScanNode node, Void context)
+        {
+            addNode(node, "CTEScan[CTE = " + node.getCteRefName() + "]");
             return processChildren(node, context);
         }
 

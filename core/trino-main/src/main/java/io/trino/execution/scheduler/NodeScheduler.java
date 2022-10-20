@@ -27,6 +27,7 @@ import io.trino.metadata.InternalNode;
 import io.trino.metadata.Split;
 import io.trino.spi.HostAddress;
 import io.trino.spi.SplitWeight;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import javax.inject.Inject;
 
@@ -61,9 +62,9 @@ public class NodeScheduler
         this.nodeSelectorFactory = requireNonNull(nodeSelectorFactory, "nodeSelectorFactory is null");
     }
 
-    public NodeSelector createNodeSelector(Session session, Optional<CatalogHandle> catalogHandle)
+    public NodeSelector createNodeSelector(Session session, Optional<CatalogHandle> catalogHandle, boolean keepConsumerOnFeederNodes, Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes)
     {
-        return nodeSelectorFactory.createNodeSelector(requireNonNull(session, "session is null"), requireNonNull(catalogHandle, "catalogHandle is null"));
+        return nodeSelectorFactory.createNodeSelector(requireNonNull(session, "session is null"), requireNonNull(catalogHandle, "catalogHandle is null"), keepConsumerOnFeederNodes, feederScheduledNodes);
     }
 
     public static List<InternalNode> getAllNodes(NodeMap nodeMap, boolean includeCoordinator)

@@ -41,6 +41,7 @@ import io.trino.execution.executor.TaskExecutor.RunningSplitInfo;
 import io.trino.memory.LocalMemoryManager;
 import io.trino.memory.NodeMemoryConfig;
 import io.trino.memory.QueryContext;
+import io.trino.operator.CommonTableExecutionContext;
 import io.trino.operator.RetryPolicy;
 import io.trino.operator.scalar.JoniRegexpFunctions;
 import io.trino.operator.scalar.JoniRegexpReplaceLambdaFunction;
@@ -53,6 +54,7 @@ import io.trino.spiller.NodeSpillConfig;
 import io.trino.sql.planner.LocalExecutionPlanner;
 import io.trino.sql.planner.PlanFragment;
 import io.trino.sql.planner.plan.DynamicFilterId;
+import io.trino.sql.planner.plan.PlanNodeId;
 import org.joda.time.DateTime;
 import org.weakref.jmx.Flatten;
 import org.weakref.jmx.Managed;
@@ -68,6 +70,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -129,6 +132,8 @@ public class SqlTaskManager
 
     private final CounterStat failedTasks = new CounterStat();
     private final Optional<StuckSplitTasksInterrupter> stuckSplitTasksInterrupter;
+
+    private static Map<String, CommonTableExecutionContext> cteCtx = new ConcurrentHashMap<>();
 
     @Inject
     public SqlTaskManager(
@@ -447,10 +452,11 @@ public class SqlTaskManager
             Optional<PlanFragment> fragment,
             List<SplitAssignment> splitAssignments,
             OutputBuffers outputBuffers,
-            Map<DynamicFilterId, Domain> dynamicFilterDomains)
+            Map<DynamicFilterId, Domain> dynamicFilterDomains,
+            Optional<PlanNodeId> consumer)
     {
         try {
-            return versionEmbedder.embedVersion(() -> doUpdateTask(session, taskId, fragment, splitAssignments, outputBuffers, dynamicFilterDomains)).call();
+            return versionEmbedder.embedVersion(() -> doUpdateTask(session, taskId, fragment, splitAssignments, outputBuffers, dynamicFilterDomains, consumer)).call();
         }
         catch (Exception e) {
             throwIfUnchecked(e);
@@ -465,7 +471,8 @@ public class SqlTaskManager
             Optional<PlanFragment> fragment,
             List<SplitAssignment> splitAssignments,
             OutputBuffers outputBuffers,
-            Map<DynamicFilterId, Domain> dynamicFilterDomains)
+            Map<DynamicFilterId, Domain> dynamicFilterDomains,
+            Optional<PlanNodeId> consumer)
     {
         requireNonNull(session, "session is null");
         requireNonNull(taskId, "taskId is null");
@@ -495,7 +502,7 @@ public class SqlTaskManager
         fragment.ifPresent(planFragment -> connectorServicesProvider.ensureCatalogsLoaded(session, planFragment.getActiveCatalogs()));
 
         sqlTask.recordHeartbeat();
-        return sqlTask.updateTask(session, fragment, splitAssignments, outputBuffers, dynamicFilterDomains);
+        return sqlTask.updateTask(session, fragment, splitAssignments, outputBuffers, dynamicFilterDomains, consumer, cteCtx);
     }
 
     /**
@@ -750,5 +757,10 @@ public class SqlTaskManager
                 failTask(stuckSplitTaskId, new TrinoException(GENERIC_USER_ERROR, format("Task %s is failed, due to containing long running stuck splits.", stuckSplitTaskId)));
             }
         }
+    }
+
+    public static void cleanupContext(String queryId)
+    {
+        cteCtx.keySet().removeIf(x -> x.contains(queryId));
     }
 }

@@ -170,6 +170,7 @@ public final class HttpRemoteTask
 
     private final AtomicBoolean started = new AtomicBoolean(false);
     private final AtomicBoolean aborting = new AtomicBoolean(false);
+    private Optional<PlanNodeId> parent;
 
     public HttpRemoteTask(
             Session session,
@@ -196,7 +197,8 @@ public final class HttpRemoteTask
             RemoteTaskStats stats,
             DynamicFilterService dynamicFilterService,
             Set<DynamicFilterId> outboundDynamicFilterIds,
-            Optional<DataSize> estimatedMemory)
+            Optional<DataSize> estimatedMemory,
+            Optional<PlanNodeId> parent)
     {
         requireNonNull(session, "session is null");
         requireNonNull(taskId, "taskId is null");
@@ -213,6 +215,7 @@ public final class HttpRemoteTask
         requireNonNull(stats, "stats is null");
         requireNonNull(outboundDynamicFilterIds, "outboundDynamicFilterIds is null");
         requireNonNull(estimatedMemory, "estimatedMemory is null");
+        requireNonNull(parent, "parent is null");
 
         try (SetThreadName ignored = new SetThreadName("HttpRemoteTask-%s", taskId)) {
             this.taskId = taskId;
@@ -231,6 +234,7 @@ public final class HttpRemoteTask
             this.updateErrorTracker = new RequestErrorTracker(taskId, location, maxErrorDuration, errorScheduledExecutor, "updating task");
             this.partitionedSplitCountTracker = requireNonNull(partitionedSplitCountTracker, "partitionedSplitCountTracker is null");
             this.stats = stats;
+            this.parent = parent;
 
             for (Entry<PlanNodeId, Split> entry : initialSplits.entries()) {
                 ScheduledSplit scheduledSplit = new ScheduledSplit(nextSplitId.getAndIncrement(), entry.getKey(), entry.getValue());
@@ -626,7 +630,7 @@ public final class HttpRemoteTask
                 fragment,
                 splitAssignments,
                 outputBuffers.get(),
-                dynamicFilterDomains.getDynamicFilterDomains());
+                dynamicFilterDomains.getDynamicFilterDomains(), parent);
         byte[] taskUpdateRequestJson = taskUpdateRequestCodec.toJsonBytes(updateRequest);
         if (fragment.isPresent()) {
             stats.updateWithPlanBytes(taskUpdateRequestJson.length);

@@ -215,7 +215,7 @@ public class SourcePartitionedScheduler
         // Avoid deadlocks by immediately scheduling a task for collecting dynamic filters because:
         // * there can be task in other stage blocked waiting for the dynamic filters, or
         // * connector split source for this stage might be blocked waiting the dynamic filters.
-        if (dynamicFilterService.isCollectingTaskNeeded(stageExecution.getStageId().getQueryId(), stageExecution.getFragment())) {
+        if (dynamicFilterService.isCollectingTaskNeeded(stageExecution.getStageId().getQueryId(), stageExecution.getFragment()) && (!stageExecution.getFragment().getFeederCTEParentId().isPresent())) {
             stageExecution.beginScheduling();
             createTaskOnRandomNode();
         }
@@ -283,7 +283,7 @@ public class SourcePartitionedScheduler
             }
             else {
                 // calculate placements for splits
-                SplitPlacementResult splitPlacementResult = splitPlacementPolicy.computeAssignments(pendingSplits);
+                SplitPlacementResult splitPlacementResult = splitPlacementPolicy.computeAssignments(pendingSplits, stageExecution);
                 splitAssignment = splitPlacementResult.getAssignments(); // remove splits with successful placements
                 splitAssignment.values().forEach(pendingSplits::remove); // AbstractSet.removeAll performs terribly here.
                 overallSplitAssignmentCount += splitAssignment.size(); // if not completed placed, mark scheduleGroup as blocked on placement
@@ -394,7 +394,7 @@ public class SourcePartitionedScheduler
     private Set<RemoteTask> finalizeTaskCreationIfNecessary()
     {
         // only lock down tasks if there is a sub stage that could block waiting for this stage to create all tasks
-        if (stageExecution.getFragment().isLeaf()) {
+        if (stageExecution.getFragment().isLeaf() || (!stageExecution.getFragment().getFeederCTEId().isPresent() && stageExecution.getFragment().getFeederCTEParentId().isPresent())) {
             return ImmutableSet.of();
         }
 

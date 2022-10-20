@@ -332,7 +332,8 @@ public class TestSqlTaskManager
                     Optional.of(PLAN_FRAGMENT),
                     ImmutableList.of(new SplitAssignment(TABLE_SCAN_NODE_ID, ImmutableSet.of(SPLIT), true)),
                     PipelinedOutputBuffers.createInitial(PARTITIONED).withBuffer(OUT, 0).withNoMoreBufferIds(),
-                    ImmutableMap.of());
+                    ImmutableMap.of(),
+                    Optional.empty());
             assertTrue(reducesLimitsContext.isMemoryLimitsInitialized());
             assertEquals(reducesLimitsContext.getMaxUserMemory(), 1);
 
@@ -345,7 +346,8 @@ public class TestSqlTaskManager
                     Optional.of(PLAN_FRAGMENT),
                     ImmutableList.of(new SplitAssignment(TABLE_SCAN_NODE_ID, ImmutableSet.of(SPLIT), true)),
                     PipelinedOutputBuffers.createInitial(PARTITIONED).withBuffer(OUT, 0).withNoMoreBufferIds(),
-                    ImmutableMap.of());
+                    ImmutableMap.of(),
+                    Optional.empty());
             assertTrue(attemptsIncreaseContext.isMemoryLimitsInitialized());
             assertEquals(attemptsIncreaseContext.getMaxUserMemory(), memoryConfig.getMaxQueryMemoryPerNode().toBytes());
         }
@@ -408,19 +410,19 @@ public class TestSqlTaskManager
                 Optional.of(PLAN_FRAGMENT),
                 ImmutableList.of(new SplitAssignment(TABLE_SCAN_NODE_ID, splits, true)),
                 outputBuffers,
-                ImmutableMap.of());
+                ImmutableMap.of(), Optional.empty());
     }
 
     private TaskInfo createTask(SqlTaskManager sqlTaskManager, TaskId taskId, OutputBuffers outputBuffers)
     {
         sqlTaskManager.getQueryContext(taskId.getQueryId())
-                .addTaskContext(new TaskStateMachine(taskId, directExecutor()), testSessionBuilder().build(), () -> {}, false, false);
+                .addTaskContext(new TaskStateMachine(taskId, directExecutor()), testSessionBuilder().build(), () -> {}, false, false, Optional.empty());
         return sqlTaskManager.updateTask(TEST_SESSION,
                 taskId,
                 Optional.of(PLAN_FRAGMENT),
                 ImmutableList.of(),
                 outputBuffers,
-                ImmutableMap.of());
+                ImmutableMap.of(), Optional.empty());
     }
 
     public static class MockDirectExchangeClientSupplier

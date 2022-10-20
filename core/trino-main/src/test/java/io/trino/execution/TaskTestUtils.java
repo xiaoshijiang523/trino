@@ -101,6 +101,8 @@ public final class TaskTestUtils
                     .withBucketToPartition(Optional.of(new int[1])),
             StatsAndCosts.empty(),
             ImmutableList.of(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty());
 
     public static final DynamicFilterId DYNAMIC_FILTER_SOURCE_ID = new DynamicFilterId("filter");
@@ -124,6 +126,8 @@ public final class TaskTestUtils
                     .withBucketToPartition(Optional.of(new int[1])),
             StatsAndCosts.empty(),
             ImmutableList.of(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty());
 
     public static LocalExecutionPlanner createTestingPlanner()
@@ -179,7 +183,7 @@ public final class TaskTestUtils
 
     public static TaskInfo updateTask(SqlTask sqlTask, List<SplitAssignment> splitAssignments, OutputBuffers outputBuffers)
     {
-        return sqlTask.updateTask(TEST_SESSION, Optional.of(PLAN_FRAGMENT), splitAssignments, outputBuffers, ImmutableMap.of());
+        return sqlTask.updateTask(TEST_SESSION, Optional.of(PLAN_FRAGMENT), splitAssignments, outputBuffers, ImmutableMap.of(), Optional.empty(), null);
     }
 
     public static SplitMonitor createTestSplitMonitor()

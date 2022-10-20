@@ -18,6 +18,7 @@ import io.trino.execution.warnings.WarningCollector;
 import io.trino.sql.PlannerContext;
 import io.trino.sql.planner.TypeAnalyzer;
 import io.trino.sql.planner.TypeProvider;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanNodeId;
 
@@ -43,6 +44,7 @@ public class NoDuplicatePlanNodeIdsChecker
     {
         Map<PlanNodeId, PlanNode> planNodeIds = new HashMap<>();
         searchFrom(planNode)
+                .recurseOnlyWhen(CTEScanNode::isNotCTEScanNode)
                 .findAll()
                 .forEach(node -> planNodeIds.merge(node.getId(), node, this::reportDuplicateId));
     }

@@ -964,7 +964,10 @@ public class LocalQueryRunner
                 subplan.getFragment().getPartitioningScheme().getOutputLayout(),
                 plan.getTypes(),
                 subplan.getFragment().getPartitionedSources(),
-                outputFactory);
+                outputFactory,
+                Optional.empty(),
+                Optional.empty(),
+                null);
 
         // generate splitAssignments
         List<SplitAssignment> splitAssignments = new ArrayList<>();

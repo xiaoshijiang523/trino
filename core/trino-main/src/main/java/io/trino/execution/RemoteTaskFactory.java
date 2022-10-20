@@ -39,5 +39,6 @@ public interface RemoteTaskFactory
             PartitionedSplitCountTracker partitionedSplitCountTracker,
             Set<DynamicFilterId> outboundDynamicFilterIds,
             Optional<DataSize> estimatedMemory,
-            boolean summarizeTaskInfo);
+            boolean summarizeTaskInfo,
+            Optional<PlanNodeId> parent);
 }

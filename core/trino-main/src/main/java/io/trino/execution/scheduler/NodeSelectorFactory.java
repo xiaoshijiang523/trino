@@ -15,10 +15,12 @@ package io.trino.execution.scheduler;
 
 import io.trino.Session;
 import io.trino.connector.CatalogHandle;
+import io.trino.sql.planner.plan.PlanNodeId;
 
+import java.util.Map;
 import java.util.Optional;
 
 public interface NodeSelectorFactory
 {
-    NodeSelector createNodeSelector(Session session, Optional<CatalogHandle> catalogHandle);
+    NodeSelector createNodeSelector(Session session, Optional<CatalogHandle> catalogHandle, boolean keepConsumerOnFeederNodes, Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes);
 }

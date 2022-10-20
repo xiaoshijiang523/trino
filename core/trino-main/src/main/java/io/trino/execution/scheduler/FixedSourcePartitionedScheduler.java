@@ -187,7 +187,7 @@ public class FixedSourcePartitionedScheduler
         }
 
         @Override
-        public SplitPlacementResult computeAssignments(Set<Split> splits)
+        public SplitPlacementResult computeAssignments(Set<Split> splits, StageExecution sqlStage)
         {
             return nodeSelector.computeAssignments(splits, remoteTasks.get(), bucketNodeMap);
         }

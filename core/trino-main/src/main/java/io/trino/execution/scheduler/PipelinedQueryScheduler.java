@@ -82,6 +82,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -723,7 +724,7 @@ public class PipelinedQueryScheduler
             TaskFailureReporter failureReporter = new TaskFailureReporter(distributedStagesScheduler);
             queryStateMachine.addOutputTaskFailureListener(failureReporter);
 
-            InternalNode coordinator = nodeScheduler.createNodeSelector(queryStateMachine.getSession(), Optional.empty()).selectCurrentNode();
+            InternalNode coordinator = nodeScheduler.createNodeSelector(queryStateMachine.getSession(), Optional.empty(), false, null).selectCurrentNode();
             for (StageExecution stageExecution : stageExecutions) {
                 Optional<RemoteTask> remoteTask = stageExecution.scheduleTask(
                         coordinator,
@@ -897,6 +898,7 @@ public class PipelinedQueryScheduler
             }
 
             ImmutableMap.Builder<StageId, StageScheduler> stageSchedulers = ImmutableMap.builder();
+            Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes = new ConcurrentHashMap<>();
             for (StageExecution stageExecution : stageExecutions.values()) {
                 List<StageExecution> children = stageManager.getChildren(stageExecution.getStageId()).stream()
                         .map(stage -> requireNonNull(stageExecutions.get(stage.getStageId()), () -> "stage execution not found for stage: " + stage))
@@ -912,7 +914,8 @@ public class PipelinedQueryScheduler
                         splitBatchSize,
                         dynamicFilterService,
                         executor,
-                        tableExecuteContextManager);
+                        tableExecuteContextManager,
+                        feederScheduledNodes);
                 stageSchedulers.put(stageExecution.getStageId(), scheduler);
             }
 
@@ -1012,10 +1015,12 @@ public class PipelinedQueryScheduler
                 int splitBatchSize,
                 DynamicFilterService dynamicFilterService,
                 ScheduledExecutorService executor,
-                TableExecuteContextManager tableExecuteContextManager)
+                TableExecuteContextManager tableExecuteContextManager,
+                Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes)
         {
             Session session = queryStateMachine.getSession();
             PlanFragment fragment = stageExecution.getFragment();
+            boolean keepConsumerOnFeederNodes = !fragment.getFeederCTEId().isPresent() && fragment.getFeederCTEParentId().isPresent();
             PartitioningHandle partitioningHandle = fragment.getPartitioning();
             Map<PlanNodeId, SplitSource> splitSources = splitSourceFactory.createSplitSources(session, fragment);
             if (!splitSources.isEmpty()) {
@@ -1044,7 +1049,7 @@ public class PipelinedQueryScheduler
                 SplitSource splitSource = entry.getValue();
                 Optional<CatalogHandle> catalogHandle = Optional.of(splitSource.getCatalogHandle())
                         .filter(catalog -> !catalog.getType().isInternal());
-                NodeSelector nodeSelector = nodeScheduler.createNodeSelector(session, catalogHandle);
+                NodeSelector nodeSelector = nodeScheduler.createNodeSelector(session, catalogHandle, keepConsumerOnFeederNodes, feederScheduledNodes);
                 SplitPlacementPolicy placementPolicy = new DynamicSplitPlacementPolicy(nodeSelector, stageExecution::getAllTasks);
 
                 return newSourcePartitionedSchedulerAsStageScheduler(
@@ -1069,7 +1074,7 @@ public class PipelinedQueryScheduler
                         stageExecution,
                         sourceTasksProvider,
                         writerTasksProvider,
-                        nodeScheduler.createNodeSelector(session, Optional.empty()),
+                        nodeScheduler.createNodeSelector(session, Optional.empty(), keepConsumerOnFeederNodes, feederScheduledNodes),
                         executor,
                         getWriterMinSize(session),
                         isTaskScaleWritersEnabled(session) ? getTaskScaleWritersMaxWriterCount(session) : getTaskWriterCount(session));
@@ -1099,7 +1104,7 @@ public class PipelinedQueryScheduler
             if (fragment.getRemoteSourceNodes().stream().allMatch(node -> node.getExchangeType() == REPLICATE)) {
                 // no remote source
                 bucketNodeMap = nodePartitioningManager.getBucketNodeMap(session, partitioningHandle);
-                stageNodeList = new ArrayList<>(nodeScheduler.createNodeSelector(session, catalogHandle).allNodes());
+                stageNodeList = new ArrayList<>(nodeScheduler.createNodeSelector(session, catalogHandle, keepConsumerOnFeederNodes, feederScheduledNodes).allNodes());
                 Collections.shuffle(stageNodeList);
             }
             else {
@@ -1116,7 +1121,7 @@ public class PipelinedQueryScheduler
                     stageNodeList,
                     bucketNodeMap,
                     splitBatchSize,
-                    nodeScheduler.createNodeSelector(session, catalogHandle),
+                    nodeScheduler.createNodeSelector(session, catalogHandle, keepConsumerOnFeederNodes, feederScheduledNodes),
                     dynamicFilterService,
                     tableExecuteContextManager);
         }

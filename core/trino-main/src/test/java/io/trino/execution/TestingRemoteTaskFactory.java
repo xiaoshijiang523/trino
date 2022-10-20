@@ -79,7 +79,8 @@ public class TestingRemoteTaskFactory
             PartitionedSplitCountTracker partitionedSplitCountTracker,
             Set<DynamicFilterId> outboundDynamicFilterIds,
             Optional<DataSize> estimatedMemory,
-            boolean summarizeTaskInfo)
+            boolean summarizeTaskInfo,
+            Optional<PlanNodeId> parent)
     {
         TestingRemoteTask task = new TestingRemoteTask(taskId, node.getNodeIdentifier(), fragment);
         task.addSplits(initialSplits);

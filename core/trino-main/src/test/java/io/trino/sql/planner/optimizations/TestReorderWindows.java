@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.trino.spi.connector.SortOrder;
+import io.trino.sql.planner.PlanOptimizers;
 import io.trino.sql.planner.RuleStatsRecorder;
 import io.trino.sql.planner.assertions.BasePlanTest;
 import io.trino.sql.planner.assertions.ExpectedValueProvider;
@@ -338,7 +339,7 @@ public class TestReorderWindows
                         getQueryRunner().getPlannerContext(),
                         createTestingTypeAnalyzer(getQueryRunner().getPlannerContext()),
                         false,
-                        false),
+                        false, new PlanOptimizers.CostCalculationHandle(getQueryRunner().getStatsCalculator(), getQueryRunner().getCostCalculator(), null), false, false),
                 new IterativeOptimizer(
                         getQueryRunner().getPlannerContext(),
                         new RuleStatsRecorder(),

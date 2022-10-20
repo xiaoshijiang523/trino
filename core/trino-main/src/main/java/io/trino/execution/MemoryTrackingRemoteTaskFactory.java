@@ -53,7 +53,8 @@ public class MemoryTrackingRemoteTaskFactory
             PartitionedSplitCountTracker partitionedSplitCountTracker,
             Set<DynamicFilterId> outboundDynamicFilterIds,
             Optional<DataSize> estimatedMemory,
-            boolean summarizeTaskInfo)
+            boolean summarizeTaskInfo,
+            Optional<PlanNodeId> parent)
     {
         RemoteTask task = remoteTaskFactory.createRemoteTask(session,
                 taskId,
@@ -64,7 +65,8 @@ public class MemoryTrackingRemoteTaskFactory
                 partitionedSplitCountTracker,
                 outboundDynamicFilterIds,
                 estimatedMemory,
-                summarizeTaskInfo);
+                summarizeTaskInfo,
+                parent);
 
         task.addStateChangeListener(new UpdatePeakMemory(stateMachine));
         return task;
