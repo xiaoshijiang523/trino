@@ -32,6 +32,7 @@ import io.trino.metadata.Split;
 import io.trino.spi.HostAddress;
 import io.trino.spi.SplitWeight;
 import io.trino.spi.TrinoException;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import javax.annotation.Nullable;
 
@@ -41,10 +42,12 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -65,15 +68,16 @@ public class UniformNodeSelector
     private static final Logger log = Logger.get(UniformNodeSelector.class);
 
     private final InternalNodeManager nodeManager;
-    private final NodeTaskMap nodeTaskMap;
+    protected final NodeTaskMap nodeTaskMap;
     private final boolean includeCoordinator;
-    private final AtomicReference<Supplier<NodeMap>> nodeMap;
+    protected final AtomicReference<Supplier<NodeMap>> nodeMap;
     private final int minCandidates;
     private final long maxSplitsWeightPerNode;
     private final long maxPendingSplitsWeightPerTask;
     private final int maxUnacknowledgedSplitsPerTask;
     private final SplitsBalancingPolicy splitsBalancingPolicy;
     private final boolean optimizedLocalScheduling;
+    private final Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes;
 
     public UniformNodeSelector(
             InternalNodeManager nodeManager,
@@ -85,7 +89,8 @@ public class UniformNodeSelector
             long maxPendingSplitsWeightPerTask,
             int maxUnacknowledgedSplitsPerTask,
             SplitsBalancingPolicy splitsBalancingPolicy,
-            boolean optimizedLocalScheduling)
+            boolean optimizedLocalScheduling,
+            Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes)
     {
         this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
         this.nodeTaskMap = requireNonNull(nodeTaskMap, "nodeTaskMap is null");
@@ -98,6 +103,7 @@ public class UniformNodeSelector
         checkArgument(maxUnacknowledgedSplitsPerTask > 0, "maxUnacknowledgedSplitsPerTask must be > 0, found: %s", maxUnacknowledgedSplitsPerTask);
         this.splitsBalancingPolicy = requireNonNull(splitsBalancingPolicy, "splitsBalancingPolicy is null");
         this.optimizedLocalScheduling = optimizedLocalScheduling;
+        this.feederScheduledNodes = feederScheduledNodes;
     }
 
     @Override
@@ -126,7 +132,7 @@ public class UniformNodeSelector
     }
 
     @Override
-    public SplitPlacementResult computeAssignments(Set<Split> splits, List<RemoteTask> existingTasks)
+    public SplitPlacementResult computeAssignments(Set<Split> splits, List<RemoteTask> existingTasks, Optional<StageExecution> stage)
     {
         Multimap<InternalNode, Split> assignment = HashMultimap.create();
         NodeMap nodeMap = this.nodeMap.get().get();
@@ -215,7 +221,27 @@ public class UniformNodeSelector
         if (splitsToBeRedistributed) {
             equateDistribution(assignment, assignmentStats, nodeMap, includeCoordinator);
         }
+
+        // Check if its CTE node and its feeder
+        if (stage.isPresent() && stage.get().getFragment().getFeederCTEId().isPresent()) {
+            updateFeederNodeAndSplitCount(stage.get(), assignment);
+        }
         return new SplitPlacementResult(blocked, assignment);
+    }
+
+    private void updateFeederNodeAndSplitCount(StageExecution stage, Multimap<InternalNode, Split> assignment)
+    {
+        FixedNodeScheduleData data;
+        if (feederScheduledNodes.containsKey(stage.getFragment().getFeederCTEParentId().get())) {
+            data = feederScheduledNodes.get(stage.getFragment().getFeederCTEParentId().get());
+            data.updateSplitCount(assignment.size());
+            data.updateAssignedNodes(assignment.keys().stream().collect(Collectors.toSet()));
+        }
+        else {
+            data = new FixedNodeScheduleData(assignment.size(), assignment.keys().stream().collect(Collectors.toSet()));
+        }
+
+        feederScheduledNodes.put(stage.getFragment().getFeederCTEParentId().get(), data);
     }
 
     @Override

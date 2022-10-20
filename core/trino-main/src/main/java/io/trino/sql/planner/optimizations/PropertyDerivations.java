@@ -41,6 +41,7 @@ import io.trino.sql.planner.optimizations.ActualProperties.Global;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.DeleteNode;
 import io.trino.sql.planner.plan.DistinctLimitNode;
@@ -846,6 +847,15 @@ public final class PropertyDerivations
             properties.local(LocalProperties.translate(constantAppendedLocalProperties, column -> Optional.ofNullable(assignments.get(column))));
 
             return properties.build();
+        }
+
+        @Override
+        public ActualProperties visitCTEScan(CTEScanNode node, List<ActualProperties> inputProperties)
+        {
+            ActualProperties properties = Iterables.getOnlyElement(inputProperties);
+            return ActualProperties.builderFrom(properties)
+                    .local(LocalProperties.grouped(node.getOutputSymbols()))
+                    .build();
         }
 
         private Global deriveGlobalProperties(TableScanNode node, TableProperties layout, Map<ColumnHandle, Symbol> assignments, Map<ColumnHandle, NullableValue> constants)

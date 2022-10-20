@@ -153,7 +153,8 @@ public class TaskResource
                 taskUpdateRequest.getFragment(),
                 taskUpdateRequest.getSplitAssignments(),
                 taskUpdateRequest.getOutputIds(),
-                taskUpdateRequest.getDynamicFilterDomains());
+                taskUpdateRequest.getDynamicFilterDomains(),
+                taskUpdateRequest.getConsumerId());
 
         if (shouldSummarize(uriInfo)) {
             taskInfo = taskInfo.summarize();

@@ -230,6 +230,11 @@ public final class Patterns
         return typeOf(ExceptNode.class);
     }
 
+    public static Pattern<CTEScanNode> cteScan()
+    {
+        return typeOf(CTEScanNode.class);
+    }
+
     public static Property<PlanNode, Lookup, PlanNode> source()
     {
         return optionalProperty(

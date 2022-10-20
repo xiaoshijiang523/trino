@@ -53,6 +53,8 @@ public class PlanFragment
     private final StageExecutionDescriptor stageExecutionDescriptor;
     private final StatsAndCosts statsAndCosts;
     private final Optional<String> jsonRepresentation;
+    private final Optional<PlanFragmentId> feederCTEId;
+    private final Optional<PlanNodeId> feederCTEParentId;
 
     // Only for creating instances without the JSON representation embedded
     private PlanFragment(
@@ -67,7 +69,9 @@ public class PlanFragment
             List<RemoteSourceNode> remoteSourceNodes,
             PartitioningScheme partitioningScheme,
             StageExecutionDescriptor stageExecutionDescriptor,
-            StatsAndCosts statsAndCosts)
+            StatsAndCosts statsAndCosts,
+            Optional<PlanFragmentId> feederCTEId,
+            Optional<PlanNodeId> feederCTEParentId)
     {
         this.id = requireNonNull(id, "id is null");
         this.root = requireNonNull(root, "root is null");
@@ -82,6 +86,8 @@ public class PlanFragment
         this.stageExecutionDescriptor = requireNonNull(stageExecutionDescriptor, "stageExecutionDescriptor is null");
         this.statsAndCosts = requireNonNull(statsAndCosts, "statsAndCosts is null");
         this.jsonRepresentation = Optional.empty();
+        this.feederCTEId = feederCTEId;
+        this.feederCTEParentId = requireNonNull(feederCTEParentId, "feederCTEParentId is null");
     }
 
     @JsonCreator
@@ -94,7 +100,9 @@ public class PlanFragment
             @JsonProperty("partitioningScheme") PartitioningScheme partitioningScheme,
             @JsonProperty("stageExecutionDescriptor") StageExecutionDescriptor stageExecutionDescriptor,
             @JsonProperty("statsAndCosts") StatsAndCosts statsAndCosts,
-            @JsonProperty("jsonRepresentation") Optional<String> jsonRepresentation)
+            @JsonProperty("jsonRepresentation") Optional<String> jsonRepresentation,
+            @JsonProperty("feederCTE") Optional<PlanFragmentId> feederCTEId,
+            @JsonProperty("feederCTEParentId") Optional<PlanNodeId> feederCTEParentId)
     {
         this.id = requireNonNull(id, "id is null");
         this.root = requireNonNull(root, "root is null");
@@ -105,7 +113,8 @@ public class PlanFragment
         this.stageExecutionDescriptor = requireNonNull(stageExecutionDescriptor, "stageExecutionDescriptor is null");
         this.statsAndCosts = requireNonNull(statsAndCosts, "statsAndCosts is null");
         this.jsonRepresentation = requireNonNull(jsonRepresentation, "jsonRepresentation is null");
-
+        this.feederCTEId = feederCTEId;
+        this.feederCTEParentId = requireNonNull(feederCTEParentId, "feederCTEParentId is null");
         checkArgument(partitionedSourcesSet.size() == partitionedSources.size(), "partitionedSources contains duplicates");
         checkArgument(ImmutableSet.copyOf(root.getOutputSymbols()).containsAll(partitioningScheme.getOutputLayout()),
                 "Root node outputs (%s) does not include all fragment outputs (%s)", root.getOutputSymbols(), partitioningScheme.getOutputLayout());
@@ -184,6 +193,18 @@ public class PlanFragment
         return jsonRepresentation;
     }
 
+    @JsonProperty
+    public Optional<PlanFragmentId> getFeederCTEId()
+    {
+        return feederCTEId;
+    }
+
+    @JsonProperty
+    public Optional<PlanNodeId> getFeederCTEParentId()
+    {
+        return feederCTEParentId;
+    }
+
     public PlanFragment withoutEmbeddedJsonRepresentation()
     {
         if (jsonRepresentation.isEmpty()) {
@@ -201,7 +222,9 @@ public class PlanFragment
                 this.remoteSourceNodes,
                 this.partitioningScheme,
                 this.stageExecutionDescriptor,
-                this.statsAndCosts);
+                this.statsAndCosts,
+                this.feederCTEId,
+                this.feederCTEParentId);
     }
 
     public List<Type> getTypes()
@@ -255,17 +278,17 @@ public class PlanFragment
 
     public PlanFragment withBucketToPartition(Optional<int[]> bucketToPartition)
     {
-        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitioningScheme.withBucketToPartition(bucketToPartition), stageExecutionDescriptor, statsAndCosts, jsonRepresentation);
+        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitioningScheme.withBucketToPartition(bucketToPartition), stageExecutionDescriptor, statsAndCosts, jsonRepresentation, feederCTEId, feederCTEParentId);
     }
 
     public PlanFragment withFixedLifespanScheduleGroupedExecution(List<PlanNodeId> capableTableScanNodes)
     {
-        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitioningScheme, StageExecutionDescriptor.fixedLifespanScheduleGroupedExecution(capableTableScanNodes), statsAndCosts, jsonRepresentation);
+        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitioningScheme, StageExecutionDescriptor.fixedLifespanScheduleGroupedExecution(capableTableScanNodes), statsAndCosts, jsonRepresentation, feederCTEId, feederCTEParentId);
     }
 
     public PlanFragment withDynamicLifespanScheduleGroupedExecution(List<PlanNodeId> capableTableScanNodes)
     {
-        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitioningScheme, StageExecutionDescriptor.dynamicLifespanScheduleGroupedExecution(capableTableScanNodes), statsAndCosts, jsonRepresentation);
+        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitioningScheme, StageExecutionDescriptor.dynamicLifespanScheduleGroupedExecution(capableTableScanNodes), statsAndCosts, jsonRepresentation, feederCTEId, feederCTEParentId);
     }
 
     @Override

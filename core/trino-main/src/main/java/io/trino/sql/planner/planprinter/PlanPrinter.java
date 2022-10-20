@@ -55,6 +55,7 @@ import io.trino.sql.planner.plan.AggregationNode.Aggregation;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
 import io.trino.sql.planner.plan.Assignments;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.DeleteNode;
 import io.trino.sql.planner.plan.DistinctLimitNode;
@@ -123,6 +124,7 @@ import io.trino.sql.tree.SymbolReference;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -264,25 +266,29 @@ public class PlanPrinter
             ValuePrinter valuePrinter,
             boolean verbose)
     {
-        Map<PlanNodeId, TableInfo> tableInfos = getAllStages(Optional.of(outputStageInfo)).stream()
-                .map(StageInfo::getTables)
-                .map(Map::entrySet)
-                .flatMap(Collection::stream)
-                .collect(toImmutableMap(Entry::getKey, Entry::getValue));
+        List<StageInfo> stageInfos = getAllStages(Optional.of(outputStageInfo));
+        Map<PlanNodeId, TableInfo> tableInfos = new HashMap<>();
+        for (StageInfo stageInfo : stageInfos) {
+            for (Entry<PlanNodeId, TableInfo> entry : stageInfo.getTables().entrySet()) {
+                if (!tableInfos.containsKey(entry.getKey())) {
+                    tableInfos.put(entry.getKey(), entry.getValue());
+                }
+            }
+        }
 
         StringBuilder builder = new StringBuilder();
-        List<StageInfo> allStages = getAllStages(Optional.of(outputStageInfo));
-        List<PlanFragment> allFragments = allStages.stream()
+        //List<StageInfo> allStages = getAllStages(Optional.of(outputStageInfo));
+        List<PlanFragment> allFragments = stageInfos.stream()
                 .map(StageInfo::getPlan)
                 .collect(toImmutableList());
-        Map<PlanNodeId, PlanNodeStats> aggregatedStats = aggregateStageStats(allStages);
+        Map<PlanNodeId, PlanNodeStats> aggregatedStats = aggregateStageStats(stageInfos);
 
         Map<DynamicFilterId, DynamicFilterDomainStats> dynamicFilterDomainStats = queryStats.getDynamicFiltersStats()
                 .getDynamicFilterDomainStats().stream()
                 .collect(toImmutableMap(DynamicFilterDomainStats::getDynamicFilterId, identity()));
         TypeProvider typeProvider = getTypeProvider(allFragments);
 
-        for (StageInfo stageInfo : allStages) {
+        for (StageInfo stageInfo : stageInfos) {
             builder.append(formatFragment(
                     tableScanNode -> tableInfos.get(tableScanNode.getId()),
                     dynamicFilterDomainStats,
@@ -376,15 +382,15 @@ public class PlanPrinter
         builder.append(indentString(1)).append(format("Stage Execution Strategy: %s\n", fragment.getStageExecutionDescriptor().getStageExecutionStrategy()));
 
         builder.append(
-                new PlanPrinter(
-                        fragment.getRoot(),
-                        typeProvider,
-                        Optional.of(fragment.getStageExecutionDescriptor()),
-                        tableInfoSupplier,
-                        dynamicFilterDomainStats,
-                        valuePrinter,
-                        fragment.getStatsAndCosts(),
-                        planNodeStats).toText(verbose, 1))
+                        new PlanPrinter(
+                                fragment.getRoot(),
+                                typeProvider,
+                                Optional.of(fragment.getStageExecutionDescriptor()),
+                                tableInfoSupplier,
+                                dynamicFilterDomainStats,
+                                valuePrinter,
+                                fragment.getStatsAndCosts(),
+                                planNodeStats).toText(verbose, 1))
                 .append("\n");
 
         return builder.toString();
@@ -410,6 +416,8 @@ public class PlanPrinter
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), plan.getOutputSymbols()),
                 ungroupedExecution(),
                 StatsAndCosts.empty(),
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
         return GraphvizPrinter.printLogical(ImmutableList.of(fragment));
     }
@@ -663,12 +671,12 @@ public class PlanPrinter
             if (node.getOrderingScheme().isPresent()) {
                 OrderingScheme orderingScheme = node.getOrderingScheme().get();
                 args.add(format("order by (%s)", Stream.concat(
-                        orderingScheme.getOrderBy().stream()
-                                .limit(node.getPreSortedOrderPrefix())
-                                .map(symbol -> "<" + symbol + " " + orderingScheme.getOrdering(symbol) + ">"),
-                        orderingScheme.getOrderBy().stream()
-                                .skip(node.getPreSortedOrderPrefix())
-                                .map(symbol -> symbol + " " + orderingScheme.getOrdering(symbol)))
+                                orderingScheme.getOrderBy().stream()
+                                        .limit(node.getPreSortedOrderPrefix())
+                                        .map(symbol -> "<" + symbol + " " + orderingScheme.getOrdering(symbol) + ">"),
+                                orderingScheme.getOrderBy().stream()
+                                        .skip(node.getPreSortedOrderPrefix())
+                                        .map(symbol -> symbol + " " + orderingScheme.getOrdering(symbol)))
                         .collect(Collectors.joining(", "))));
             }
 
@@ -722,12 +730,12 @@ public class PlanPrinter
             if (node.getOrderingScheme().isPresent()) {
                 OrderingScheme orderingScheme = node.getOrderingScheme().get();
                 args.add(format("order by (%s)", Stream.concat(
-                        orderingScheme.getOrderBy().stream()
-                                .limit(node.getPreSortedOrderPrefix())
-                                .map(symbol -> "<" + symbol + " " + orderingScheme.getOrdering(symbol) + ">"),
-                        orderingScheme.getOrderBy().stream()
-                                .skip(node.getPreSortedOrderPrefix())
-                                .map(symbol -> symbol + " " + orderingScheme.getOrdering(symbol)))
+                                orderingScheme.getOrderBy().stream()
+                                        .limit(node.getPreSortedOrderPrefix())
+                                        .map(symbol -> "<" + symbol + " " + orderingScheme.getOrdering(symbol) + ">"),
+                                orderingScheme.getOrderBy().stream()
+                                        .skip(node.getPreSortedOrderPrefix())
+                                        .map(symbol -> symbol + " " + orderingScheme.getOrdering(symbol)))
                         .collect(Collectors.joining(", "))));
             }
 
@@ -1446,6 +1454,13 @@ public class PlanPrinter
                             node.getCorrelation(),
                             node.getFilter().equals(TRUE_LITERAL) ? "" : " " + node.getFilter()));
 
+            return processChildren(node, context);
+        }
+
+        @Override
+        public Void visitCTEScan(CTEScanNode node, Void context)
+        {
+            addNode(node, "CTEScan[CTE = " + node.getCteRefName() + "]");
             return processChildren(node, context);
         }
 

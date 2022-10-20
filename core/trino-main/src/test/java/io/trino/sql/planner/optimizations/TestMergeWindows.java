@@ -16,6 +16,7 @@ package io.trino.sql.planner.optimizations;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.trino.Session;
 import io.trino.spi.connector.SortOrder;
 import io.trino.sql.planner.RuleStatsRecorder;
 import io.trino.sql.planner.assertions.BasePlanTest;
@@ -25,6 +26,7 @@ import io.trino.sql.planner.iterative.IterativeOptimizer;
 import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.iterative.rule.GatherAndMergeWindows;
 import io.trino.sql.planner.iterative.rule.RemoveRedundantIdentityProjections;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.WindowNode;
 import io.trino.sql.tree.FrameBound;
@@ -36,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static io.trino.SystemSessionProperties.CTE_REUSE_ENABLED;
 import static io.trino.sql.planner.PlanOptimizers.columnPruningRules;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.any;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.anyNot;
@@ -44,6 +47,7 @@ import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.filter;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.functionCall;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.join;
+import static io.trino.sql.planner.assertions.PlanMatchPattern.node;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.project;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.specification;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.tableScan;
@@ -467,6 +471,9 @@ public class TestMergeWindows
                         rShipdateAlias, "shipdate"));
 
         assertUnitPlan(sql,
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 anyTree(
                         filter("SUM = AVG",
                                 join(JoinNode.Type.INNER, ImmutableList.of(),
@@ -603,5 +610,93 @@ public class TestMergeWindows
                                 .addAll(columnPruningRules(getQueryRunner().getMetadata()))
                                 .build()));
         assertPlan(sql, pattern, optimizers);
+    }
+
+    private void assertUnitPlan(@Language("SQL") String sql, Session session, PlanMatchPattern pattern)
+    {
+        List<PlanOptimizer> optimizers = ImmutableList.of(
+                new UnaliasSymbolReferences(getQueryRunner().getMetadata()),
+                new IterativeOptimizer(
+                        getQueryRunner().getPlannerContext(),
+                        new RuleStatsRecorder(),
+                        getQueryRunner().getStatsCalculator(),
+                        getQueryRunner().getEstimatedExchangesCostCalculator(),
+                        ImmutableSet.<Rule<?>>builder()
+                                .add(new RemoveRedundantIdentityProjections())
+                                .addAll(GatherAndMergeWindows.rules())
+                                .addAll(columnPruningRules(getQueryRunner().getMetadata()))
+                                .build()));
+        assertPlan(sql, session, pattern, optimizers);
+    }
+
+    @Test
+    public void testNotMergeAcrossJoinBranchesCTE()
+    {
+        String rOrderkeyAlias = "R_ORDERKEY";
+        String rShipdateAlias = "R_SHIPDATE";
+        String rQuantityAlias = "R_QUANTITY";
+
+        @Language("SQL") String sql = "WITH foo AS (" +
+                "SELECT " +
+                "suppkey, orderkey, partkey, " +
+                "SUM(discount) OVER (PARTITION BY orderkey ORDER BY shipdate, quantity DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) a " +
+                "FROM lineitem WHERE (partkey = 272 OR partkey = 273) AND suppkey > 50 " +
+                "), " +
+                "bar AS ( " +
+                "SELECT " +
+                "suppkey, orderkey, partkey, " +
+                "AVG(quantity) OVER (PARTITION BY orderkey ORDER BY shipdate, quantity DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) b " +
+                "FROM lineitem WHERE (partkey = 272 OR partkey = 273) AND suppkey > 50 " +
+                ")" +
+                "SELECT * FROM foo, bar WHERE foo.a = bar.b";
+
+        ExpectedValueProvider<WindowNode.Specification> leftSpecification = specification(
+                ImmutableList.of(ORDERKEY_ALIAS),
+                ImmutableList.of(SHIPDATE_ALIAS, QUANTITY_ALIAS),
+                ImmutableMap.of(SHIPDATE_ALIAS, SortOrder.ASC_NULLS_LAST, QUANTITY_ALIAS, SortOrder.DESC_NULLS_LAST));
+
+        ExpectedValueProvider<WindowNode.Specification> rightSpecification = specification(
+                ImmutableList.of(rOrderkeyAlias),
+                ImmutableList.of(rShipdateAlias, rQuantityAlias),
+                ImmutableMap.of(rShipdateAlias, SortOrder.ASC_NULLS_LAST, rQuantityAlias, SortOrder.DESC_NULLS_LAST));
+
+        // Too many items in the map to call ImmutableMap.of() :-(
+        ImmutableMap.Builder<String, String> leftTableScanBuilder = ImmutableMap.builder();
+        leftTableScanBuilder.put(DISCOUNT_ALIAS, "discount");
+        leftTableScanBuilder.put(ORDERKEY_ALIAS, "orderkey");
+        leftTableScanBuilder.put("PARTKEY", "partkey");
+        leftTableScanBuilder.put(SUPPKEY_ALIAS, "suppkey");
+        leftTableScanBuilder.put(QUANTITY_ALIAS, "quantity");
+        leftTableScanBuilder.put(SHIPDATE_ALIAS, "shipdate");
+
+        PlanMatchPattern leftTableScan = tableScan("lineitem", leftTableScanBuilder.buildOrThrow());
+
+        PlanMatchPattern rightTableScan = tableScan(
+                "lineitem",
+                ImmutableMap.of(
+                        rOrderkeyAlias, "orderkey",
+                        "R_PARTKEY", "partkey",
+                        "R_SUPPKEY", "suppkey",
+                        rQuantityAlias, "quantity",
+                        rShipdateAlias, "shipdate"));
+
+        assertUnitPlan(sql,
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "true")
+                        .build(),
+                anyTree(filter("SUM = AVG",
+                        join(JoinNode.Type.INNER, ImmutableList.of(),
+                                node(CTEScanNode.class,
+                                        project(window(windowMatcherBuilder -> windowMatcherBuilder
+                                                        .specification(leftSpecification)
+                                                        .addFunction("SUM", functionCall("sum", COMMON_FRAME, ImmutableList.of(DISCOUNT_ALIAS))),
+                                                any(
+                                                        leftTableScan)))),
+                                node(CTEScanNode.class,
+                                        project(window(windowMatcherBuilder -> windowMatcherBuilder
+                                                        .specification(rightSpecification)
+                                                        .addFunction("AVG", functionCall("avg", COMMON_FRAME, ImmutableList.of(rQuantityAlias))),
+                                                any(
+                                                        rightTableScan))))))));
     }
 }

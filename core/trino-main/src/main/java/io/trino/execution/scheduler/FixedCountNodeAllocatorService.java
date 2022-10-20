@@ -174,7 +174,7 @@ public class FixedCountNodeAllocatorService
 
         private synchronized Optional<InternalNode> tryAcquireNode(NodeRequirements requirements)
         {
-            NodeSelector nodeSelector = nodeSelectorCache.computeIfAbsent(requirements.getCatalogName(), catalogName -> nodeScheduler.createNodeSelector(session, catalogName));
+            NodeSelector nodeSelector = nodeSelectorCache.computeIfAbsent(requirements.getCatalogName(), catalogName -> nodeScheduler.createNodeSelector(session, catalogName, false, null));
 
             List<InternalNode> nodes = nodeSelector.allNodes();
             if (nodes.isEmpty()) {

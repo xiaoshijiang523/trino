@@ -21,6 +21,7 @@ import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.iterative.GroupReference;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.EnforceSingleRowNode;
 import io.trino.sql.planner.plan.ExchangeNode;
 import io.trino.sql.planner.plan.FilterNode;
@@ -372,6 +373,13 @@ public class CostCalculatorUsingExchanges
         {
             return node.getSources().stream()
                     .map(sourcesCosts::getCost);
+        }
+
+        @Override
+        public PlanCostEstimate visitCTEScan(CTEScanNode node, Void context)
+        {
+            LocalCostEstimate localCost = LocalCostEstimate.ofCpu(getStats(node).getOutputSizeInBytes(node.getOutputSymbols(), types));
+            return costForStreaming(node, localCost);
         }
     }
 

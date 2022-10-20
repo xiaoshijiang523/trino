@@ -19,12 +19,16 @@ import io.trino.event.SplitMonitor;
 import io.trino.execution.buffer.OutputBuffer;
 import io.trino.execution.executor.TaskExecutor;
 import io.trino.memory.QueryContext;
+import io.trino.operator.CommonTableExecutionContext;
 import io.trino.operator.TaskContext;
 import io.trino.sql.planner.LocalExecutionPlanner;
 import io.trino.sql.planner.LocalExecutionPlanner.LocalExecutionPlan;
 import io.trino.sql.planner.PlanFragment;
 import io.trino.sql.planner.TypeProvider;
+import io.trino.sql.planner.plan.PlanNodeId;
 
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 
 import static com.google.common.base.Throwables.throwIfUnchecked;
@@ -64,14 +68,14 @@ public class SqlTaskExecutionFactory
             TaskStateMachine taskStateMachine,
             OutputBuffer outputBuffer,
             PlanFragment fragment,
-            Runnable notifyStatusChanged)
+            Runnable notifyStatusChanged, Optional<PlanNodeId> consumer, Map<String, CommonTableExecutionContext> cteCtx)
     {
         TaskContext taskContext = queryContext.addTaskContext(
                 taskStateMachine,
                 session,
                 notifyStatusChanged,
                 perOperatorCpuTimerEnabled,
-                cpuTimerEnabled);
+                cpuTimerEnabled, consumer);
 
         LocalExecutionPlan localExecutionPlan;
         try (SetThreadName ignored = new SetThreadName("Task-%s", taskStateMachine.getTaskId())) {
@@ -83,7 +87,10 @@ public class SqlTaskExecutionFactory
                         fragment.getPartitioningScheme(),
                         fragment.getStageExecutionDescriptor(),
                         fragment.getPartitionedSources(),
-                        outputBuffer);
+                        outputBuffer,
+                        fragment.getFeederCTEId(),
+                        fragment.getFeederCTEParentId(),
+                        cteCtx);
             }
             catch (Throwable e) {
                 // planning failed

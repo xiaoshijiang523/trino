@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
+import io.airlift.log.Logger;
 import io.trino.Session;
 import io.trino.metadata.TableHandle;
 import io.trino.spi.connector.ColumnHandle;
@@ -32,6 +33,7 @@ import io.trino.sql.analyzer.RelationType;
 import io.trino.sql.analyzer.Scope;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.Assignments;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.ExceptNode;
 import io.trino.sql.planner.plan.FilterNode;
@@ -44,6 +46,7 @@ import io.trino.sql.planner.plan.ProjectNode;
 import io.trino.sql.planner.plan.SampleNode;
 import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.planner.plan.UnionNode;
+import io.trino.sql.planner.plan.UniqueIdAllocator;
 import io.trino.sql.planner.plan.UnnestNode;
 import io.trino.sql.planner.plan.ValuesNode;
 import io.trino.sql.planner.plan.WindowNode;
@@ -94,6 +97,7 @@ import io.trino.type.TypeCoercion;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +110,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static io.trino.SystemSessionProperties.isCTEReuseEnabled;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.sql.NodeUtils.getSortItemsFromOrderBy;
 import static io.trino.sql.analyzer.SemanticExceptions.semanticException;
@@ -131,6 +136,7 @@ import static java.util.Objects.requireNonNull;
 class RelationPlanner
         extends AstVisitor<RelationPlan, Void>
 {
+    private static final Logger LOG = Logger.get(RelationPlanner.class);
     private final Analysis analysis;
     private final SymbolAllocator symbolAllocator;
     private final PlanNodeIdAllocator idAllocator;
@@ -141,6 +147,8 @@ class RelationPlanner
     private final Session session;
     private final SubqueryPlanner subqueryPlanner;
     private final Map<NodeRef<Node>, RelationPlan> recursiveSubqueries;
+    private final Map<QualifiedName, Integer> namedSubPlan;
+    private final UniqueIdAllocator uniqueIdAllocator;
 
     RelationPlanner(
             Analysis analysis,
@@ -150,7 +158,9 @@ class RelationPlanner
             PlannerContext plannerContext,
             Optional<TranslationMap> outerContext,
             Session session,
-            Map<NodeRef<Node>, RelationPlan> recursiveSubqueries)
+            Map<NodeRef<Node>, RelationPlan> recursiveSubqueries,
+            Map<QualifiedName, Integer> namedSubPlan,
+            UniqueIdAllocator uniqueIdAllocator)
     {
         requireNonNull(analysis, "analysis is null");
         requireNonNull(symbolAllocator, "symbolAllocator is null");
@@ -169,8 +179,10 @@ class RelationPlanner
         this.typeCoercion = new TypeCoercion(plannerContext.getTypeManager()::getType);
         this.outerContext = outerContext;
         this.session = session;
-        this.subqueryPlanner = new SubqueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, typeCoercion, outerContext, session, recursiveSubqueries);
+        this.subqueryPlanner = new SubqueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, typeCoercion, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator);
         this.recursiveSubqueries = recursiveSubqueries;
+        this.namedSubPlan = namedSubPlan;
+        this.uniqueIdAllocator = uniqueIdAllocator;
     }
 
     @Override
@@ -196,7 +208,7 @@ class RelationPlanner
         if (namedQuery != null) {
             RelationPlan subPlan;
             if (analysis.isExpandableQuery(namedQuery)) {
-                subPlan = new QueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+                subPlan = new QueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                         .planExpand(namedQuery);
             }
             else {
@@ -213,7 +225,29 @@ class RelationPlanner
 
             NodeAndMappings coerced = coerce(subPlan, types, symbolAllocator, idAllocator);
 
-            plan = new RelationPlan(coerced.getNode(), scope, coerced.getFields(), outerContext);
+            if ((!isCTEReuseEnabled(session)) || !(analysis.getStatement() instanceof Query) || !((Query) analysis.getStatement()).getWith().isPresent()) {
+                plan = new RelationPlan(coerced.getNode(), scope, coerced.getFields(), outerContext);
+                return plan;
+            }
+
+            Integer commonCTERefNum;
+            if (namedSubPlan.containsKey(node.getName())) {
+                commonCTERefNum = namedSubPlan.get(node.getName());
+            }
+            else {
+                commonCTERefNum = uniqueIdAllocator.getNextId();
+                namedSubPlan.put(node.getName(), commonCTERefNum);
+            }
+
+            PlanNode cteNode = new CTEScanNode(idAllocator.getNextId(),
+                    coerced.getNode(),
+                    coerced.getFields(),
+                    Optional.empty(),
+                    node.getName().toString(),
+                    new HashSet<>(),
+                    commonCTERefNum);
+            plan = new RelationPlan(cteNode, scope, coerced.getFields(), outerContext);
+            return plan;
         }
         else {
             TableHandle handle = analysis.getTableHandle(node);
@@ -855,7 +889,7 @@ class RelationPlanner
     {
         PlanBuilder leftPlanBuilder = newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap);
 
-        RelationPlan rightPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, Optional.of(leftPlanBuilder.getTranslations()), session, recursiveSubqueries)
+        RelationPlan rightPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, Optional.of(leftPlanBuilder.getTranslations()), session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .process(lateral.getQuery(), null);
 
         PlanBuilder rightPlanBuilder = newPlanBuilder(rightPlan, analysis, lambdaDeclarationToSymbolMap);
@@ -972,14 +1006,14 @@ class RelationPlanner
     @Override
     protected RelationPlan visitQuery(Query node, Void context)
     {
-        return new QueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+        return new QueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .plan(node);
     }
 
     @Override
     protected RelationPlan visitQuerySpecification(QuerySpecification node, Void context)
     {
-        return new QueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+        return new QueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .plan(node);
     }
 

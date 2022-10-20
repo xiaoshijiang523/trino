@@ -40,6 +40,8 @@ type StageNodeInfo = {
     stageStats: any,
     state: string,
     nodes: Map<string, any>,
+    feederCTE: string,
+    feederCTEParentId: string,
 }
 
 class StageStatistics extends React.Component<StageStatisticsProps, StageStatisticsState> {
@@ -64,7 +66,9 @@ class StageStatistics extends React.Component<StageStatisticsProps, StageStatist
             distribution: stageInfo.plan.distribution,
             stageStats: stageInfo.stageStats,
             state: stageInfo.state,
-            nodes: nodes
+            nodes: nodes,
+            feederCTE: stageInfo.plan.feederCTE,
+            parentFeederId: stageInfo.plan.feederCTEParentId,
         });
     }
 
@@ -175,6 +179,8 @@ export class LivePlan extends React.Component<LivePlanProps, LivePlanState> {
             graph: initializeGraph(),
             svg: null,
             render: new dagreD3.render(),
+            feederInfo: new Map(),
+            consumerFeederMap: new Map(),
         };
     }
 
@@ -220,7 +226,16 @@ export class LivePlan extends React.Component<LivePlanProps, LivePlanState> {
         const clusterId = stage.stageId;
         const stageRootNodeId = "stage-" + stage.id + "-root";
         const color = getStageStateColor(stage);
+        if(stage.feederCTE != undefined) {
+            // add feeder detail to map to keep track
+            this.state.feederInfo.set(stage.parentFeederId, stage.feederCTE);
+        }
 
+        if(stage.parentFeederId != undefined && stage.feederCTE == undefined) {
+            // store consumer stage to feeder stage mapping info
+            this.state.consumerFeederMap.set(stage.id, this.state.feederInfo.get(stage.parentFeederId));
+        }
+        else {
         graph.setNode(clusterId, {style: 'fill: ' + color, labelStyle: 'fill: #fff'});
 
         // this is a non-standard use of ReactDOMServer, but it's the cleanest way to unify DagreD3 with React
@@ -229,11 +244,11 @@ export class LivePlan extends React.Component<LivePlanProps, LivePlanState> {
         graph.setNode(stageRootNodeId, {class: "stage-stats", label: html, labelType: "html"});
         graph.setParent(stageRootNodeId, clusterId);
         graph.setEdge("node-" + stage.root, stageRootNodeId, {style: "visibility: hidden"});
-
+        }
         stage.nodes.forEach(node => {
             const nodeId = "node-" + node.id;
             const nodeHtml = ReactDOMServer.renderToString(<PlanNode {...node}/>);
-
+            if(graph.node(nodeId) == undefined) {
             graph.setNode(nodeId, {label: nodeHtml, style: 'fill: #fff', labelType: "html"});
             graph.setParent(nodeId, clusterId);
 
@@ -248,17 +263,33 @@ export class LivePlan extends React.Component<LivePlanProps, LivePlanState> {
                     const source = allStages.get(sourceId);
                     if (source) {
                         const sourceStats = source.stageStats;
-                        graph.setEdge("stage-" + sourceId + "-root", nodeId, {
+
+                        if(this.state.consumerFeederMap.has(sourceId)) {
+                            // create edge from feeder instead of consumer to parent stage
+                            console.log("remote sources for edges is -" + this.state.consumerFeederMap.get(sourceId));
+                            graph.setEdge("stage-" + this.state.consumerFeederMap.get(sourceId) + "-root", nodeId, {
+                                class: "plan-edge",
+                                style: "stroke-width: 4px",
+                                arrowheadClass: "plan-arrowhead",
+                                label: sourceStats.outputDataSize + " / " + formatRows(sourceStats.outputPositions),
+                                labelStyle: "color: #fff; font-weight: bold; font-size: 24px;",
+                                labelType: "html",
+                            });
+                        }
+                        else{
+                            graph.setEdge("stage-" + sourceId + "-root", nodeId, {
                                 class: "plan-edge",
                                 style: "stroke-width: 4px",
                                 arrowheadClass: "plan-arrowhead",
                                 label: parseAndFormatDataSize(sourceStats.outputDataSize) + " / " + formatRows(sourceStats.outputPositions),
                                 labelStyle: "color: #fff; font-weight: bold; font-size: 24px;",
                                 labelType: "html",
-                        });
+                            });
+                        }
                     }
                 });
             }
+         }
         });
     }
 

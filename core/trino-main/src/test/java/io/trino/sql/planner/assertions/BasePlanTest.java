@@ -125,6 +125,11 @@ public class BasePlanTest
         assertPlan(sql, OPTIMIZED, pattern, optimizers);
     }
 
+    protected void assertPlan(@Language("SQL") String sql, Session session, PlanMatchPattern pattern, List<PlanOptimizer> optimizers)
+    {
+        assertPlan(sql, session, OPTIMIZED, pattern, optimizers);
+    }
+
     protected void assertPlan(@Language("SQL") String sql, LogicalPlanner.Stage stage, PlanMatchPattern pattern, Predicate<PlanOptimizer> optimizerPredicate)
     {
         List<PlanOptimizer> optimizers = queryRunner.getPlanOptimizers(true).stream()
@@ -137,6 +142,15 @@ public class BasePlanTest
     protected void assertPlan(@Language("SQL") String sql, LogicalPlanner.Stage stage, PlanMatchPattern pattern, List<PlanOptimizer> optimizers)
     {
         queryRunner.inTransaction(transactionSession -> {
+            Plan actualPlan = queryRunner.createPlan(transactionSession, sql, optimizers, stage, WarningCollector.NOOP);
+            PlanAssert.assertPlan(transactionSession, queryRunner.getMetadata(), queryRunner.getFunctionManager(), queryRunner.getStatsCalculator(), actualPlan, pattern);
+            return null;
+        });
+    }
+
+    protected void assertPlan(@Language("SQL") String sql, Session session, LogicalPlanner.Stage stage, PlanMatchPattern pattern, List<PlanOptimizer> optimizers)
+    {
+        queryRunner.inTransaction(session, transactionSession -> {
             Plan actualPlan = queryRunner.createPlan(transactionSession, sql, optimizers, stage, WarningCollector.NOOP);
             PlanAssert.assertPlan(transactionSession, queryRunner.getMetadata(), queryRunner.getFunctionManager(), queryRunner.getStatsCalculator(), actualPlan, pattern);
             return null;

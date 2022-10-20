@@ -28,11 +28,13 @@ import io.trino.metadata.InternalNode;
 import io.trino.metadata.InternalNodeManager;
 import io.trino.spi.HostAddress;
 import io.trino.spi.SplitWeight;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import javax.inject.Inject;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -102,7 +104,7 @@ public class UniformNodeSelectorFactory
     }
 
     @Override
-    public NodeSelector createNodeSelector(Session session, Optional<CatalogName> catalogName)
+    public NodeSelector createNodeSelector(Session session, Optional<CatalogName> catalogName, boolean keepConsumerOnFeederNodes, Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes)
     {
         requireNonNull(catalogName, "catalogName is null");
 
@@ -118,6 +120,9 @@ public class UniformNodeSelectorFactory
             nodeMap = () -> createNodeMap(catalogName);
         }
 
+        if (keepConsumerOnFeederNodes) {
+            return new SimpleFixedNodeSelector(nodeManager, nodeTaskMap, includeCoordinator, nodeMap, minCandidates, maxSplitsWeightPerNode, maxPendingSplitsWeightPerTask, getMaxUnacknowledgedSplitsPerTask(session), splitsBalancingPolicy, optimizedLocalScheduling, feederScheduledNodes);
+        }
         return new UniformNodeSelector(
                 nodeManager,
                 nodeTaskMap,
@@ -128,7 +133,8 @@ public class UniformNodeSelectorFactory
                 maxPendingSplitsWeightPerTask,
                 getMaxUnacknowledgedSplitsPerTask(session),
                 splitsBalancingPolicy,
-                optimizedLocalScheduling);
+                optimizedLocalScheduling,
+                feederScheduledNodes);
     }
 
     private NodeMap createNodeMap(Optional<CatalogName> catalogName)

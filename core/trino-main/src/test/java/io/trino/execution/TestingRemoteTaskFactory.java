@@ -42,6 +42,7 @@ import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -73,7 +74,8 @@ public class TestingRemoteTaskFactory
             OutputBuffers outputBuffers,
             PartitionedSplitCountTracker partitionedSplitCountTracker,
             Set<DynamicFilterId> outboundDynamicFilterIds,
-            boolean summarizeTaskInfo)
+            boolean summarizeTaskInfo,
+            Optional<PlanNodeId> parent)
     {
         TestingRemoteTask task = new TestingRemoteTask(taskId, node.getNodeIdentifier(), fragment);
         task.addSplits(initialSplits);

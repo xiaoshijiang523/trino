@@ -31,6 +31,7 @@ import io.trino.sql.PlannerContext;
 import io.trino.sql.planner.iterative.IterativeOptimizer;
 import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.iterative.RuleStats;
+import io.trino.sql.planner.iterative.rule.AddExchangeAboveCTENode;
 import io.trino.sql.planner.iterative.rule.AddExchangesBelowPartialAggregationOverGroupIdRuleSet;
 import io.trino.sql.planner.iterative.rule.AddIntermediateAggregations;
 import io.trino.sql.planner.iterative.rule.ApplyPreferredTableExecutePartitioning;
@@ -244,6 +245,7 @@ import io.trino.sql.planner.optimizations.OptimizeMixedDistinctAggregations;
 import io.trino.sql.planner.optimizations.OptimizerStats;
 import io.trino.sql.planner.optimizations.PlanOptimizer;
 import io.trino.sql.planner.optimizations.PredicatePushDown;
+import io.trino.sql.planner.optimizations.PruneCTENodes;
 import io.trino.sql.planner.optimizations.ReplicateSemiJoinInDelete;
 import io.trino.sql.planner.optimizations.StatsRecordingPlanOptimizer;
 import io.trino.sql.planner.optimizations.TransformQuantifiedComparisonApplyToCorrelatedJoin;
@@ -314,11 +316,12 @@ public class PlanOptimizers
             RuleStatsRecorder ruleStats)
     {
         CostCalculator costCalculator = costCalculatorWithEstimatedExchanges;
+        CostCalculationHandle costCalculationHandle = new CostCalculationHandle(statsCalculator, costCalculatorWithoutEstimatedExchanges, costComparator);
 
         this.ruleStats = requireNonNull(ruleStats, "ruleStats is null");
         ImmutableList.Builder<PlanOptimizer> builder = ImmutableList.builder();
-
         Metadata metadata = plannerContext.getMetadata();
+        builder.add(new PruneCTENodes(metadata, typeAnalyzer, false));
         Set<Rule<?>> columnPruningRules = columnPruningRules(metadata);
 
         Set<Rule<?>> projectionPushdownRules = ImmutableSet.of(
@@ -550,7 +553,7 @@ public class PlanOptimizers
                 simplifyOptimizer, // Should run after MergeProjectWithValues
                 new StatsRecordingPlanOptimizer(
                         optimizerStats,
-                        new PredicatePushDown(plannerContext, typeAnalyzer, false, false)),
+                        new PredicatePushDown(plannerContext, typeAnalyzer, false, false, costCalculationHandle, false, false)),
                 new IterativeOptimizer(
                         plannerContext,
                         ruleStats,
@@ -643,7 +646,7 @@ public class PlanOptimizers
                 // Projection pushdown rules may push reducing projections (e.g. dereferences) below filters for potential
                 // pushdown into the connectors. We invoke PredicatePushdown and PushPredicateIntoTableScan after this
                 // to leverage predicate pushdown on projected columns.
-                new StatsRecordingPlanOptimizer(optimizerStats, new PredicatePushDown(plannerContext, typeAnalyzer, true, false)),
+                new StatsRecordingPlanOptimizer(optimizerStats, new PredicatePushDown(plannerContext, typeAnalyzer, true, false, costCalculationHandle, false, false)),
                 new IterativeOptimizer(
                         plannerContext,
                         ruleStats,
@@ -698,6 +701,7 @@ public class PlanOptimizers
                                 new RemoveRedundantIdentityProjections(),
                                 new PushDownProjectionsFromPatternRecognition())),
                 new MetadataQueryOptimizer(plannerContext),
+                new PruneCTENodes(metadata, typeAnalyzer, true),
                 new IterativeOptimizer(
                         plannerContext,
                         ruleStats,
@@ -706,8 +710,8 @@ public class PlanOptimizers
                         ImmutableSet.of(new EliminateCrossJoins(plannerContext, typeAnalyzer))), // This can pull up Filter and Project nodes from between Joins, so we need to push them down again
                 new StatsRecordingPlanOptimizer(
                         optimizerStats,
-                        new PredicatePushDown(plannerContext, typeAnalyzer, true, false)),
-                new IterativeOptimizer(
+                        new PredicatePushDown(plannerContext, typeAnalyzer, true, false, costCalculationHandle, true, false)),
+               new IterativeOptimizer(
                         plannerContext,
                         ruleStats,
                         statsCalculator,
@@ -720,7 +724,7 @@ public class PlanOptimizers
                 // Projection pushdown rules may push reducing projections (e.g. dereferences) below filters for potential
                 // pushdown into the connectors. Invoke PredicatePushdown and PushPredicateIntoTableScan after this
                 // to leverage predicate pushdown on projected columns.
-                new StatsRecordingPlanOptimizer(optimizerStats, new PredicatePushDown(plannerContext, typeAnalyzer, true, false)),
+                new StatsRecordingPlanOptimizer(optimizerStats, new PredicatePushDown(plannerContext, typeAnalyzer, true, false, costCalculationHandle, false, false)),
                 new IterativeOptimizer(
                         plannerContext,
                         ruleStats,
@@ -757,7 +761,6 @@ public class PlanOptimizers
                         statsCalculator,
                         costCalculator,
                         ImmutableSet.of(new ReorderJoins(plannerContext, costComparator, typeAnalyzer))));
-
         builder.add(new OptimizeMixedDistinctAggregations(metadata));
         builder.add(new IterativeOptimizer(
                 plannerContext,
@@ -854,7 +857,7 @@ public class PlanOptimizers
         // and to pushdown dynamic filters
         builder.add(new StatsRecordingPlanOptimizer(
                 optimizerStats,
-                new PredicatePushDown(plannerContext, typeAnalyzer, true, false)));
+                new PredicatePushDown(plannerContext, typeAnalyzer, true, false, costCalculationHandle, false, true)));
         builder.add(new IterativeOptimizer(
                 plannerContext,
                 ruleStats,
@@ -868,7 +871,7 @@ public class PlanOptimizers
         // Projection pushdown rules may push reducing projections (e.g. dereferences) below filters for potential
         // pushdown into the connectors. Invoke PredicatePushdown and PushPredicateIntoTableScan after this
         // to leverage predicate pushdown on projected columns.
-        builder.add(new StatsRecordingPlanOptimizer(optimizerStats, new PredicatePushDown(plannerContext, typeAnalyzer, true, true)));
+        builder.add(new StatsRecordingPlanOptimizer(optimizerStats, new PredicatePushDown(plannerContext, typeAnalyzer, true, true, costCalculationHandle, true, false)));
         builder.add(new RemoveUnsupportedDynamicFilters(plannerContext)); // Remove unsupported dynamic filters introduced by PredicatePushdown
         builder.add(new IterativeOptimizer(
                 plannerContext,
@@ -880,6 +883,12 @@ public class PlanOptimizers
                         .add(new PushPredicateIntoTableScan(plannerContext, typeAnalyzer))
                         .add(new RemoveRedundantPredicateAboveTableScan(plannerContext, typeAnalyzer))
                         .build()));
+        builder.add(new IterativeOptimizer(
+                plannerContext,
+                ruleStats,
+                statsCalculator,
+                costCalculator,
+                ImmutableSet.of(new AddExchangeAboveCTENode())));
         builder.add(inlineProjections);
         builder.add(new UnaliasSymbolReferences(metadata)); // Run unalias after merging projections to simplify projections more efficiently
         builder.add(columnPruningOptimizer);
@@ -1019,5 +1028,34 @@ public class PlanOptimizers
     public Map<Class<?>, RuleStats> getRuleStats()
     {
         return ruleStats.getStats();
+    }
+
+    public static class CostCalculationHandle
+    {
+        StatsCalculator statsCalculator;
+        CostCalculator costCalculator;
+        CostComparator costComparator;
+
+        public CostCalculationHandle(StatsCalculator statsCalculator, CostCalculator costCalculator, CostComparator costComparator)
+        {
+            this.statsCalculator = statsCalculator;
+            this.costCalculator = costCalculator;
+            this.costComparator = costComparator;
+        }
+
+        public StatsCalculator getStatsCalculator()
+        {
+            return statsCalculator;
+        }
+
+        public CostCalculator getCostCalculator()
+        {
+            return costCalculator;
+        }
+
+        public CostComparator getCostComparator()
+        {
+            return costComparator;
+        }
     }
 }

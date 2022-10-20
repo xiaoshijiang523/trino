@@ -39,6 +39,7 @@ import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.Assignments;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.DistinctLimitNode;
 import io.trino.sql.planner.plan.EnforceSingleRowNode;
@@ -554,6 +555,9 @@ public class HashGenerationOptimizer
                 Function<Symbol, Optional<Symbol>> outputToInputTranslator = symbol -> Optional.of(outputToInputMap.get(symbol));
 
                 HashComputationSet sourceContext = preference.translate(outputToInputTranslator);
+                if (node.getSources().size() == 1 && node.getSources().get(0) instanceof CTEScanNode) {
+                    return visitExchangeForCTE(node, sourceContext);
+                }
                 PlanWithProperties child = planAndEnforce(source, sourceContext, true, sourceContext);
                 newSources.add(child.getNode());
 
@@ -578,6 +582,33 @@ public class HashGenerationOptimizer
                             newInputs.build(),
                             node.getOrderingScheme()),
                     newHashSymbols);
+        }
+
+        private PlanWithProperties visitExchangeForCTE(ExchangeNode node, HashComputationSet inputSourceContext)
+        {
+            Assignments.Builder assignments = Assignments.builder();
+            for (Symbol symbol : node.getOutputSymbols()) {
+                assignments.put(symbol, symbol.toSymbolReference());
+            }
+            HashComputationSet sourceContext = inputSourceContext;
+            for (HashComputation hashComputation : sourceContext.getHashes()) {
+                Symbol hashSymbol = symbolAllocator.newHashSymbol();
+                assignments.put(hashSymbol, hashComputation.getHashExpression(session, metadata, types));
+            }
+            sourceContext = new HashComputationSet(Optional.empty());
+            PlanWithProperties child = planAndEnforce(node.getSources().get(0), sourceContext, true, sourceContext);
+            ExchangeNode exchangeNode = new ExchangeNode(
+                    node.getId(),
+                    node.getType(),
+                    node.getScope(),
+                    node.getPartitioningScheme(),
+                    ImmutableList.of(child.getNode()),
+                    node.getInputs(),
+                    node.getOrderingScheme());
+            return new PlanWithProperties(new ProjectNode(idAllocator.getNextId(),
+                    exchangeNode,
+                    assignments.build()),
+                    child.getHashSymbols());
         }
 
         @Override

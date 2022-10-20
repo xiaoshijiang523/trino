@@ -55,6 +55,7 @@ import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.planner.plan.TableWriterNode.DeleteTarget;
 import io.trino.sql.planner.plan.TableWriterNode.UpdateTarget;
 import io.trino.sql.planner.plan.UnionNode;
+import io.trino.sql.planner.plan.UniqueIdAllocator;
 import io.trino.sql.planner.plan.UpdateNode;
 import io.trino.sql.planner.plan.ValuesNode;
 import io.trino.sql.planner.plan.WindowNode;
@@ -156,6 +157,8 @@ class QueryPlanner
     private final SubqueryPlanner subqueryPlanner;
     private final Optional<TranslationMap> outerContext;
     private final Map<NodeRef<Node>, RelationPlan> recursiveSubqueries;
+    private final Map<QualifiedName, Integer> namedSubPlan;
+    private final UniqueIdAllocator uniqueIdAllocator;
 
     QueryPlanner(
             Analysis analysis,
@@ -165,7 +168,9 @@ class QueryPlanner
             PlannerContext plannerContext,
             Optional<TranslationMap> outerContext,
             Session session,
-            Map<NodeRef<Node>, RelationPlan> recursiveSubqueries)
+            Map<NodeRef<Node>, RelationPlan> recursiveSubqueries,
+            Map<QualifiedName, Integer> namedSubPlan,
+            UniqueIdAllocator uniqueIdAllocator)
     {
         requireNonNull(analysis, "analysis is null");
         requireNonNull(symbolAllocator, "symbolAllocator is null");
@@ -184,8 +189,10 @@ class QueryPlanner
         this.typeCoercion = new TypeCoercion(plannerContext.getTypeManager()::getType);
         this.session = session;
         this.outerContext = outerContext;
-        this.subqueryPlanner = new SubqueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, typeCoercion, outerContext, session, recursiveSubqueries);
+        this.subqueryPlanner = new SubqueryPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, typeCoercion, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator);
         this.recursiveSubqueries = recursiveSubqueries;
+        this.namedSubPlan = namedSubPlan;
+        this.uniqueIdAllocator = uniqueIdAllocator;
     }
 
     public RelationPlan plan(Query query)
@@ -223,7 +230,7 @@ class QueryPlanner
 
         // plan anchor relation
         Relation anchorNode = union.getRelations().get(0);
-        RelationPlan anchorPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+        RelationPlan anchorPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .process(anchorNode, null);
 
         // prune anchor plan outputs to contain only the symbols exposed in the scope
@@ -247,7 +254,7 @@ class QueryPlanner
                 plannerContext,
                 outerContext,
                 session,
-                ImmutableMap.of(NodeRef.of(analysis.getRecursiveReference(query)), anchorPlan))
+                ImmutableMap.of(NodeRef.of(analysis.getRecursiveReference(query)), anchorPlan), namedSubPlan, uniqueIdAllocator)
                 .process(recursionStepRelation, null);
 
         // coerce recursion step outputs and prune them to contain only the symbols exposed in the scope
@@ -483,7 +490,7 @@ class QueryPlanner
         TableHandle handle = analysis.getTableHandle(table);
 
         // create table scan
-        RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+        RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .process(table, null);
 
         PlanBuilder builder = newPlanBuilder(relationPlan, analysis, lambdaDeclarationToSymbolMap);
@@ -538,7 +545,7 @@ class QueryPlanner
         List<Expression> orderedColumnValues = orderedColumnValuesBuilder.build();
 
         // create table scan
-        RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+        RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .process(table, null);
 
         PlanBuilder builder = newPlanBuilder(relationPlan, analysis, lambdaDeclarationToSymbolMap);
@@ -602,7 +609,7 @@ class QueryPlanner
 
     private PlanBuilder planQueryBody(Query query)
     {
-        RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+        RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .process(query.getQueryBody(), null);
 
         return newPlanBuilder(relationPlan, analysis, lambdaDeclarationToSymbolMap);
@@ -611,7 +618,7 @@ class QueryPlanner
     private PlanBuilder planFrom(QuerySpecification node)
     {
         if (node.getFrom().isPresent()) {
-            RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+            RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                     .process(node.getFrom().get(), null);
             return newPlanBuilder(relationPlan, analysis, lambdaDeclarationToSymbolMap);
         }
@@ -1353,7 +1360,7 @@ class QueryPlanner
                 baseFrame,
                 nullTreatment == NullTreatment.IGNORE);
 
-        PatternRecognitionComponents components = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+        PatternRecognitionComponents components = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .planPatternRecognitionComponents(
                         subPlan::rewrite,
                         frame.getSubsets(),
@@ -1484,7 +1491,7 @@ class QueryPlanner
                 Optional.empty(),
                 frameEnd.getValue());
 
-        PatternRecognitionComponents components = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries)
+        PatternRecognitionComponents components = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, outerContext, session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .planPatternRecognitionComponents(
                         subPlan::rewrite,
                         frame.getSubsets(),

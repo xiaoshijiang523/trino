@@ -29,6 +29,7 @@ import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.optimizations.SymbolMapper;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.Assignments;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.ExchangeNode;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.ProjectNode;
@@ -85,6 +86,12 @@ public class PushPartialAggregationThroughExchange
     public Result apply(AggregationNode aggregationNode, Captures captures, Context context)
     {
         ExchangeNode exchangeNode = captures.get(EXCHANGE_NODE);
+
+        // Do not push down aggregation since CTEScanNode requires an exchange node above it
+        if (exchangeNode.getSources().size() == 1 &&
+                context.getLookup().resolve(exchangeNode.getSources().get(0)) instanceof CTEScanNode) {
+            return Result.empty();
+        }
 
         boolean decomposable = aggregationNode.isDecomposable(plannerContext.getMetadata());
 

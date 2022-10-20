@@ -16,6 +16,7 @@ package io.trino.sql.planner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.trino.Session;
 import io.trino.spi.connector.SortOrder;
 import io.trino.sql.planner.assertions.BasePlanTest;
 import io.trino.sql.planner.assertions.ExpectedValueProvider;
@@ -29,6 +30,7 @@ import org.testng.annotations.Test;
 
 import java.util.Optional;
 
+import static io.trino.SystemSessionProperties.CTE_REUSE_ENABLED;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.anyTree;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.functionCall;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.specification;
@@ -64,6 +66,9 @@ public class TestCanonicalize
                 "WITH x as (SELECT a, a as b FROM (VALUES 1) t(a))" +
                         "SELECT *, row_number() OVER(ORDER BY a ASC, b DESC)" +
                         "FROM x",
+                Session.builder(getQueryRunner().getDefaultSession())
+                        .setSystemProperty(CTE_REUSE_ENABLED, "false")
+                        .build(),
                 anyTree(
                         window(windowMatcherBuilder -> windowMatcherBuilder
                                         .specification(specification)

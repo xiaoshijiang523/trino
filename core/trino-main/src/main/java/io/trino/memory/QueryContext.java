@@ -25,6 +25,7 @@ import io.trino.memory.context.MemoryTrackingContext;
 import io.trino.operator.TaskContext;
 import io.trino.spi.QueryId;
 import io.trino.spiller.SpillSpaceTracker;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
@@ -33,6 +34,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
@@ -239,7 +241,8 @@ public class QueryContext
             Session session,
             Runnable notifyStatusChanged,
             boolean perOperatorCpuTimerEnabled,
-            boolean cpuTimerEnabled)
+            boolean cpuTimerEnabled,
+            Optional<PlanNodeId> parent)
     {
         TaskContext taskContext = createTaskContext(
                 this,
@@ -251,7 +254,8 @@ public class QueryContext
                 queryMemoryContext.newMemoryTrackingContext(),
                 notifyStatusChanged,
                 perOperatorCpuTimerEnabled,
-                cpuTimerEnabled);
+                cpuTimerEnabled,
+                parent.orElse(null));
         taskContexts.put(taskStateMachine.getTaskId(), taskContext);
         return taskContext;
     }
@@ -336,5 +340,10 @@ public class QueryContext
                 .toString();
 
         return format("%s, Top Consumers: %s", additionalInfo, topConsumers);
+    }
+
+    public int getTaskCount()
+    {
+        return taskContexts.size();
     }
 }

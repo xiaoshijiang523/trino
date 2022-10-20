@@ -23,6 +23,7 @@ import io.trino.sql.planner.PlanFragment;
 import io.trino.sql.planner.plan.DynamicFilterId;
 import io.trino.sql.planner.plan.PlanNodeId;
 
+import java.util.Optional;
 import java.util.Set;
 
 public interface RemoteTaskFactory
@@ -36,5 +37,5 @@ public interface RemoteTaskFactory
             OutputBuffers outputBuffers,
             PartitionedSplitCountTracker partitionedSplitCountTracker,
             Set<DynamicFilterId> outboundDynamicFilterIds,
-            boolean summarizeTaskInfo);
+            boolean summarizeTaskInfo, Optional<PlanNodeId> parent);
 }

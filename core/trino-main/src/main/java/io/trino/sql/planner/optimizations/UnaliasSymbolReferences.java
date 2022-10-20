@@ -37,6 +37,7 @@ import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
 import io.trino.sql.planner.plan.Assignments;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.DeleteNode;
 import io.trino.sql.planner.plan.DistinctLimitNode;
@@ -192,6 +193,16 @@ public class UnaliasSymbolReferences
         public Map<DynamicFilterId, DynamicFilterId> getDynamicFilterIdMap()
         {
             return ImmutableMap.copyOf(dynamicFilterIdMap);
+        }
+
+        @Override
+        public PlanAndMappings visitCTEScan(CTEScanNode node, UnaliasContext context)
+        {
+            PlanAndMappings rewrittenSource = node.getSource().accept(this, context);
+            Map<Symbol, Symbol> mapping = new HashMap<>(rewrittenSource.getMappings());
+            SymbolMapper mapper = symbolMapper(mapping);
+            return new PlanAndMappings(new CTEScanNode(node.getId(), rewrittenSource.getRoot(), rewrittenSource.getRoot().getOutputSymbols(), node.getPredicate(), node.getCteRefName(),
+                    node.getConsumerPlans(), node.getCommonCTERefNum()), mapping);
         }
 
         @Override

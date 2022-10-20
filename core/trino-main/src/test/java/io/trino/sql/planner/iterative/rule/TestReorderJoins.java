@@ -39,6 +39,7 @@ import org.testng.annotations.Test;
 import java.util.Optional;
 
 import static io.airlift.testing.Closeables.closeAllRuntimeException;
+import static io.trino.SystemSessionProperties.CTE_REUSE_ENABLED;
 import static io.trino.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
 import static io.trino.SystemSessionProperties.JOIN_MAX_BROADCAST_TABLE_SIZE;
 import static io.trino.SystemSessionProperties.JOIN_REORDERING_STRATEGY;
@@ -408,7 +409,7 @@ public class TestReorderJoins
     @Test
     public void testPushesProjectionsThroughJoin()
     {
-        assertReorderJoins()
+        assertReorderJoins().setSystemProperty(CTE_REUSE_ENABLED, "false")
                 .on(p ->
                         p.join(
                                 INNER,

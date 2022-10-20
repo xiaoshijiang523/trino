@@ -24,6 +24,7 @@ import io.trino.sql.planner.PlanFragment;
 import io.trino.sql.planner.plan.DynamicFilterId;
 import io.trino.sql.planner.plan.PlanNodeId;
 
+import java.util.Optional;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
@@ -50,7 +51,7 @@ public class MemoryTrackingRemoteTaskFactory
             OutputBuffers outputBuffers,
             PartitionedSplitCountTracker partitionedSplitCountTracker,
             Set<DynamicFilterId> outboundDynamicFilterIds,
-            boolean summarizeTaskInfo)
+            boolean summarizeTaskInfo, Optional<PlanNodeId> parent)
     {
         RemoteTask task = remoteTaskFactory.createRemoteTask(session,
                 taskId,
@@ -60,7 +61,8 @@ public class MemoryTrackingRemoteTaskFactory
                 outputBuffers,
                 partitionedSplitCountTracker,
                 outboundDynamicFilterIds,
-                summarizeTaskInfo);
+                summarizeTaskInfo,
+                parent);
 
         task.addStateChangeListener(new UpdatePeakMemory(stateMachine));
         return task;

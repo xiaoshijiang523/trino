@@ -23,6 +23,7 @@ import io.trino.sql.PlannerContext;
 import io.trino.sql.planner.SubExpressionExtractor;
 import io.trino.sql.planner.TypeAnalyzer;
 import io.trino.sql.planner.TypeProvider;
+import io.trino.sql.planner.plan.CTEScanNode;
 import io.trino.sql.planner.plan.DynamicFilterId;
 import io.trino.sql.planner.plan.FilterNode;
 import io.trino.sql.planner.plan.JoinNode;
@@ -160,7 +161,7 @@ public class DynamicFiltersChecker
             {
                 List<DynamicFilters.Descriptor> dynamicFilters = extractDynamicPredicates(node.getPredicate());
                 if (!dynamicFilters.isEmpty()) {
-                    verify(node.getSource() instanceof TableScanNode, "Dynamic filters %s present in filter predicate whose source is not a table scan.", dynamicFilters);
+                    verify(node.getSource() instanceof TableScanNode || node.getSource() instanceof CTEScanNode, "Dynamic filters %s present in filter predicate whose source is not a table scan.", dynamicFilters);
                 }
                 ImmutableSet.Builder<DynamicFilterId> consumed = ImmutableSet.builder();
                 dynamicFilters.forEach(descriptor -> {

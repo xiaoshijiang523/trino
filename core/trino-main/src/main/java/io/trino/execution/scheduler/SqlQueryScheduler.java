@@ -93,6 +93,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -209,6 +210,7 @@ public class SqlQueryScheduler
     private final AtomicReference<DistributedStagesScheduler> distributedStagesScheduler = new AtomicReference<>();
     @GuardedBy("this")
     private Future<Void> distributedStagesSchedulingTask;
+    private final Set<PlanFragmentId> visitedPlanFrags = new HashSet<>();
 
     public SqlQueryScheduler(
             QueryStateMachine queryStateMachine,
@@ -262,7 +264,8 @@ public class SqlQueryScheduler
                 queryExecutor,
                 schedulerStats,
                 plan,
-                summarizeTaskInfo);
+                summarizeTaskInfo,
+                visitedPlanFrags);
 
         coordinatorStagesScheduler = CoordinatorStagesScheduler.create(
                 queryStateMachine,
@@ -543,7 +546,8 @@ public class SqlQueryScheduler
                 ExecutorService executor,
                 SplitSchedulerStats schedulerStats,
                 SubPlan planTree,
-                boolean summarizeTaskInfo)
+                boolean summarizeTaskInfo,
+                Set<PlanFragmentId> visitedPlanFrags)
         {
             ImmutableMap.Builder<StageId, SqlStage> stages = ImmutableMap.builder();
             ImmutableList.Builder<SqlStage> coordinatorStagesInTopologicalOrder = ImmutableList.builder();
@@ -551,8 +555,13 @@ public class SqlQueryScheduler
             StageId rootStageId = null;
             ImmutableMap.Builder<StageId, Set<StageId>> children = ImmutableMap.builder();
             ImmutableMap.Builder<StageId, StageId> parents = ImmutableMap.builder();
+            Set<PlanFragmentId> childSet = new HashSet<>();
             for (SubPlan planNode : Traverser.forTree(SubPlan::getChildren).breadthFirst(planTree)) {
                 PlanFragment fragment = planNode.getFragment();
+                if (visitedPlanFrags.contains(planNode.getFragment().getId())) {
+                    continue;
+                }
+                visitedPlanFrags.add(planNode.getFragment().getId());
                 SqlStage stage = createSqlStage(
                         getStageId(session.getQueryId(), fragment.getId()),
                         fragment,
@@ -565,6 +574,7 @@ public class SqlQueryScheduler
                         schedulerStats);
                 StageId stageId = stage.getStageId();
                 stages.put(stageId, stage);
+
                 if (fragment.getPartitioning().isCoordinatorOnly()) {
                     coordinatorStagesInTopologicalOrder.add(stage);
                 }
@@ -575,10 +585,28 @@ public class SqlQueryScheduler
                     rootStageId = stageId;
                 }
                 Set<StageId> childStageIds = planNode.getChildren().stream()
-                        .map(childStage -> getStageId(session.getQueryId(), childStage.getFragment().getId()))
+                        .filter(childStage -> !childSet.contains(childStage.getFragment().getId()))
+                        .map(childStage -> {
+                            childSet.add(childStage.getFragment().getId());
+                            return getStageId(session.getQueryId(), childStage.getFragment().getId()); })
                         .collect(toImmutableSet());
                 children.put(stageId, childStageIds);
-                childStageIds.forEach(child -> parents.put(child, stageId));
+                if (!parents.buildOrThrow().isEmpty()) {
+                    Optional<RemoteSourceNode> parentNode = stages.buildOrThrow()
+                            .get(parents.buildOrThrow().get(stageId))
+                            .getFragment()
+                            .getRemoteSourceNodes()
+                            .stream()
+                            .filter(x -> x.getSourceFragmentIds().contains(stage.getFragment().getId()))
+                            .findAny();
+                    checkArgument(parentNode.isPresent(), "Couldn't find parent of a CTE node");
+                    stage.setParentId(parentNode.get().getId());
+                }
+                childStageIds.forEach(child -> {
+                    if (!parents.buildOrThrow().containsKey(child)) {
+                        parents.put(child, stageId);
+                    }
+                });
             }
             StageManager stageManager = new StageManager(
                     queryStateMachine,
@@ -1025,7 +1053,7 @@ public class SqlQueryScheduler
             TaskFailureReporter failureReporter = new TaskFailureReporter(distributedStagesScheduler);
             queryStateMachine.addOutputTaskFailureListener(failureReporter);
 
-            InternalNode coordinator = nodeScheduler.createNodeSelector(queryStateMachine.getSession(), Optional.empty()).selectCurrentNode();
+            InternalNode coordinator = nodeScheduler.createNodeSelector(queryStateMachine.getSession(), Optional.empty(), false, null).selectCurrentNode();
             for (StageExecution stageExecution : stageExecutions) {
                 Optional<RemoteTask> remoteTask = stageExecution.scheduleTask(
                         coordinator,
@@ -1229,6 +1257,7 @@ public class SqlQueryScheduler
             }
 
             ImmutableMap.Builder<StageId, StageScheduler> stageSchedulers = ImmutableMap.builder();
+            Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes = new ConcurrentHashMap<>();
             for (StageExecution stageExecution : stageExecutions.values()) {
                 List<StageExecution> children = stageManager.getChildren(stageExecution.getStageId()).stream()
                         .map(stage -> requireNonNull(stageExecutions.get(stage.getStageId()), () -> "stage execution not found for stage: " + stage))
@@ -1244,7 +1273,8 @@ public class SqlQueryScheduler
                         splitBatchSize,
                         dynamicFilterService,
                         executor,
-                        tableExecuteContextManager);
+                        tableExecuteContextManager,
+                        feederScheduledNodes);
                 stageSchedulers.put(stageExecution.getStageId(), scheduler);
             }
 
@@ -1272,7 +1302,9 @@ public class SqlQueryScheduler
                 PlanFragment fragment = stage.getFragment();
                 Optional<int[]> bucketToPartition = getBucketToPartition(fragment.getPartitioning(), partitioningCache, fragment.getRoot(), fragment.getRemoteSourceNodes());
                 for (SqlStage childStage : stageManager.getChildren(stage.getStageId())) {
-                    result.put(childStage.getFragment().getId(), bucketToPartition);
+                    if (!result.buildOrThrow().containsKey(childStage.getFragment().getId())) {
+                        result.put(childStage.getFragment().getId(), bucketToPartition);
+                    }
                 }
             }
             return result.buildOrThrow();
@@ -1331,7 +1363,9 @@ public class SqlQueryScheduler
                         int partitionCount = Ints.max(bucketToPartition.get()) + 1;
                         outputBufferManager = new PartitionedOutputBufferManager(partitioningHandle, partitionCount);
                     }
-                    result.put(fragmentId, outputBufferManager);
+                    if (!result.buildOrThrow().containsKey(fragmentId)) {
+                        result.put(fragmentId, outputBufferManager);
+                    }
                 }
             }
             return result.buildOrThrow();
@@ -1348,11 +1382,13 @@ public class SqlQueryScheduler
                 int splitBatchSize,
                 DynamicFilterService dynamicFilterService,
                 ScheduledExecutorService executor,
-                TableExecuteContextManager tableExecuteContextManager)
+                TableExecuteContextManager tableExecuteContextManager,
+                Map<PlanNodeId, FixedNodeScheduleData> feederScheduledNodes)
         {
             Session session = queryStateMachine.getSession();
             PlanFragment fragment = stageExecution.getFragment();
             PartitioningHandle partitioningHandle = fragment.getPartitioning();
+            boolean keepConsumerOnFeederNodes = !fragment.getFeederCTEId().isPresent() && fragment.getFeederCTEParentId().isPresent();
             Map<PlanNodeId, SplitSource> splitSources = splitSourceFactory.createSplitSources(session, fragment);
             if (!splitSources.isEmpty()) {
                 queryStateMachine.addStateChangeListener(new StateChangeListener<>()
@@ -1379,7 +1415,7 @@ public class SqlQueryScheduler
                 SplitSource splitSource = entry.getValue();
                 Optional<CatalogName> catalogName = Optional.of(splitSource.getCatalogName())
                         .filter(catalog -> !isInternalSystemConnector(catalog));
-                NodeSelector nodeSelector = nodeScheduler.createNodeSelector(session, catalogName);
+                NodeSelector nodeSelector = nodeScheduler.createNodeSelector(session, catalogName, keepConsumerOnFeederNodes, feederScheduledNodes);
                 SplitPlacementPolicy placementPolicy = new DynamicSplitPlacementPolicy(nodeSelector, stageExecution::getAllTasks);
 
                 checkArgument(!fragment.getStageExecutionDescriptor().isStageGroupedExecution());
@@ -1405,7 +1441,7 @@ public class SqlQueryScheduler
                         stageExecution,
                         sourceTasksProvider,
                         writerTasksProvider,
-                        nodeScheduler.createNodeSelector(session, Optional.empty()),
+                        nodeScheduler.createNodeSelector(session, Optional.empty(), keepConsumerOnFeederNodes, feederScheduledNodes),
                         executor,
                         getWriterMinSize(session));
 
@@ -1440,7 +1476,7 @@ public class SqlQueryScheduler
                         // verify execution is consistent with planner's decision on dynamic lifespan schedule
                         verify(bucketNodeMap.isDynamic() == dynamicLifespanSchedule);
 
-                        stageNodeList = new ArrayList<>(nodeScheduler.createNodeSelector(session, catalogName).allNodes());
+                        stageNodeList = new ArrayList<>(nodeScheduler.createNodeSelector(session, catalogName, keepConsumerOnFeederNodes, feederScheduledNodes).allNodes());
                         Collections.shuffle(stageNodeList);
                     }
                     else {
@@ -1465,7 +1501,7 @@ public class SqlQueryScheduler
                             bucketNodeMap,
                             splitBatchSize,
                             getConcurrentLifespansPerNode(session),
-                            nodeScheduler.createNodeSelector(session, catalogName),
+                            nodeScheduler.createNodeSelector(session, catalogName, keepConsumerOnFeederNodes, feederScheduledNodes),
                             connectorPartitionHandles,
                             dynamicFilterService,
                             tableExecuteContextManager);
@@ -1583,12 +1619,12 @@ public class SqlQueryScheduler
 
             try (SetThreadName ignored = new SetThreadName("Query-%s", queryStateMachine.getQueryId())) {
                 stageSchedulers.values().forEach(StageScheduler::start);
+
                 while (!executionSchedule.isFinished()) {
                     List<ListenableFuture<Void>> blockedStages = new ArrayList<>();
                     StagesScheduleResult stagesScheduleResult = executionSchedule.getStagesToSchedule();
                     for (StageExecution stageExecution : stagesScheduleResult.getStagesToSchedule()) {
                         stageExecution.beginScheduling();
-
                         // perform some scheduling work
                         ScheduleResult result = stageSchedulers.get(stageExecution.getStageId())
                                 .schedule();

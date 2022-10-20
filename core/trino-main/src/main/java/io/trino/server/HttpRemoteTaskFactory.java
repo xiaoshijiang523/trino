@@ -45,6 +45,7 @@ import org.weakref.jmx.Nested;
 import javax.annotation.PreDestroy;
 import javax.inject.Inject;
 
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -136,7 +137,7 @@ public class HttpRemoteTaskFactory
             OutputBuffers outputBuffers,
             PartitionedSplitCountTracker partitionedSplitCountTracker,
             Set<DynamicFilterId> outboundDynamicFilterIds,
-            boolean summarizeTaskInfo)
+            boolean summarizeTaskInfo, Optional<PlanNodeId> parent)
     {
         return new HttpRemoteTask(session,
                 taskId,
@@ -161,6 +162,6 @@ public class HttpRemoteTaskFactory
                 partitionedSplitCountTracker,
                 stats,
                 dynamicFilterService,
-                outboundDynamicFilterIds);
+                outboundDynamicFilterIds, parent);
     }
 }

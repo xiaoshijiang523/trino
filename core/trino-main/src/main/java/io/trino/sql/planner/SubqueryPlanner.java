@@ -32,6 +32,7 @@ import io.trino.sql.planner.plan.CorrelatedJoinNode;
 import io.trino.sql.planner.plan.EnforceSingleRowNode;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.ProjectNode;
+import io.trino.sql.planner.plan.UniqueIdAllocator;
 import io.trino.sql.tree.Cast;
 import io.trino.sql.tree.ComparisonExpression;
 import io.trino.sql.tree.ExistsPredicate;
@@ -41,6 +42,7 @@ import io.trino.sql.tree.LambdaArgumentDeclaration;
 import io.trino.sql.tree.Node;
 import io.trino.sql.tree.NodeRef;
 import io.trino.sql.tree.NotExpression;
+import io.trino.sql.tree.QualifiedName;
 import io.trino.sql.tree.QuantifiedComparisonExpression;
 import io.trino.sql.tree.QuantifiedComparisonExpression.Quantifier;
 import io.trino.sql.tree.Query;
@@ -79,6 +81,8 @@ class SubqueryPlanner
     private final TypeCoercion typeCoercion;
     private final Session session;
     private final Map<NodeRef<Node>, RelationPlan> recursiveSubqueries;
+    private final Map<QualifiedName, Integer> namedSubPlan;
+    private final UniqueIdAllocator uniqueIdAllocator;
 
     SubqueryPlanner(
             Analysis analysis,
@@ -89,7 +93,9 @@ class SubqueryPlanner
             TypeCoercion typeCoercion,
             Optional<TranslationMap> outerContext,
             Session session,
-            Map<NodeRef<Node>, RelationPlan> recursiveSubqueries)
+            Map<NodeRef<Node>, RelationPlan> recursiveSubqueries,
+            Map<QualifiedName, Integer> namedSubPlan,
+            UniqueIdAllocator uniqueIdAllocator)
     {
         requireNonNull(analysis, "analysis is null");
         requireNonNull(symbolAllocator, "symbolAllocator is null");
@@ -109,6 +115,8 @@ class SubqueryPlanner
         this.typeCoercion = typeCoercion;
         this.session = session;
         this.recursiveSubqueries = recursiveSubqueries;
+        this.namedSubPlan = namedSubPlan;
+        this.uniqueIdAllocator = uniqueIdAllocator;
     }
 
     public PlanBuilder handleSubqueries(PlanBuilder builder, Collection<Expression> expressions, Analysis.SubqueryAnalysis subqueries)
@@ -308,7 +316,7 @@ class SubqueryPlanner
 
     private RelationPlan planSubquery(Expression subquery, TranslationMap outerContext)
     {
-        return new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, Optional.of(outerContext), session, recursiveSubqueries)
+        return new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, Optional.of(outerContext), session, recursiveSubqueries, namedSubPlan, uniqueIdAllocator)
                 .process(subquery, null);
     }
 
